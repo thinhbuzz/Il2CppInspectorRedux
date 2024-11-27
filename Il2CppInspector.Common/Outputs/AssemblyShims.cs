@@ -433,6 +433,25 @@ namespace Il2CppInspector.Outputs
                         ("Offset", string.Format("0x{0:X}", model.Package.BinaryImage.MapVATR(method.VirtualAddress.Value.Start))),
                         ("VA", method.VirtualAddress.Value.Start.ToAddressString())
                     };
+                if (method is MethodInfo)
+                {
+                    args.Add(("ReturnTypeName", (method as MethodInfo).ReturnType.FullName));
+                    args.Add(("MethodName", method.Name));
+                    args.Add(("ReturnTypeShortName", (method as MethodInfo).ReturnType.Name));
+                    var methodType = "General";
+                    if ((method as MethodInfo).IsSpecialName)
+                    {
+                        if (method.Name.StartsWith("set_"))
+                        {
+                            methodType = "Setter";
+                        } else if (method.Name.StartsWith("get_"))
+                        {
+                            methodType = "Getter";
+                        }
+                    }
+                    args.Add(("MethodName", methodType));
+                    args.Add(("TypeParameters", string.Join(", ", (method as MethodInfo).DeclaredParameters.Select(p => p.ParameterType.FullName))));
+                }
                 if (method.Definition.Slot != ushort.MaxValue)
                     args.Add(("Slot", method.Definition.Slot.ToString()));
 
