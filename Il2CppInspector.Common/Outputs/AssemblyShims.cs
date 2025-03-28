@@ -428,7 +428,7 @@ namespace Il2CppInspector.Outputs
 
             // Add method pointer attribute
             if (method.VirtualAddress.HasValue) {
-                var args = new List<(string,object)> {
+                var args = new List<(string, object)> {
                         ("RVA", (method.VirtualAddress.Value.Start - model.Package.BinaryImage.ImageBase).ToAddressString()),
                         ("Offset", string.Format("0x{0:X}", model.Package.BinaryImage.MapVATR(method.VirtualAddress.Value.Start))),
                         ("VA", method.VirtualAddress.Value.Start.ToAddressString())
@@ -450,10 +450,13 @@ namespace Il2CppInspector.Outputs
                         }
                     }
                     args.Add(("MethodType", methodType));
+                    args.Add(("MethodModifier", (method as MethodInfo).GetAccessModifierString().Trim()));
                     args.Add(("MethodParameterTypes", string.Join(", ", (method as MethodInfo).DeclaredParameters.Select(p => p.GetParameterString(Scope.Empty, false, false)))));
                 }
                 if (method.Definition.Slot != ushort.MaxValue)
+                {
                     args.Add(("Slot", method.Definition.Slot.ToString()));
+                }
 
                 mMethod.AddAttribute(module, addressAttribute, args.ToArray());
             }
