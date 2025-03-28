@@ -457,6 +457,10 @@ namespace Il2CppInspector.Outputs
                 {
                     args.Add(("Slot", method.Definition.Slot.ToString()));
                 }
+                else
+                {
+                    args.Add(("Slot", "0"));
+                }
 
                 mMethod.AddAttribute(module, addressAttribute, args.ToArray());
             }
