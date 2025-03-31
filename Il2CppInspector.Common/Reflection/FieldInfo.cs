@@ -137,33 +137,60 @@ namespace Il2CppInspector.Reflection {
             DefaultValueMetadataAddress = fieldDef.DefaultValueMetadataAddress;
         }
 
-        public string GetAccessModifierString() => this switch {
-            { IsPrivate: true } => "private ",
-            { IsPublic: true } => "public ",
-            { IsFamily: true } => "protected ",
-            { IsAssembly: true } => "internal ",
-            { IsFamilyOrAssembly: true } => "protected internal ",
-            { IsFamilyAndAssembly: true } => "private protected ",
+        public string GetAccessModifierString()
+        {
+            var accessModifier = GetAccessModifierStringRaw();
+            if (accessModifier == "")
+            {
+                return accessModifier;
+            }
+            return accessModifier + " ";
+        }
+
+        public string GetAccessModifierStringRaw() => this switch
+        {
+            { IsPrivate: true } => "private",
+            { IsPublic: true } => "public",
+            { IsFamily: true } => "protected",
+            { IsAssembly: true } => "internal",
+            { IsFamilyOrAssembly: true } => "protected internal",
+            { IsFamilyAndAssembly: true } => "private protected",
             _ => ""
         };
 
-        public string GetModifierString() {
-            var modifiers = new StringBuilder(GetAccessModifierString());
+        public string GetModifierString()
+        {
+            var modifiers = GetModifierStringRaw();
+
+            if (modifiers.Count == 0)
+            {
+                return "";
+            }
+
+            modifiers.Prepend(GetAccessModifierString());
+            modifiers.Add("");
+
+            return string.Join(" ", modifiers);
+        }
+
+        public List<string> GetModifierStringRaw()
+        {
+            List<string> modifiers = new List<string>();
 
             if (IsLiteral)
-                modifiers.Append("const ");
+                modifiers.Add("const");
             // All const fields are also static by implication
             else if (IsStatic)
-                modifiers.Append("static ");
+                modifiers.Add("static");
             if (IsInitOnly)
-                modifiers.Append("readonly ");
+                modifiers.Add("readonly");
             if (RequiresUnsafeContext)
-                modifiers.Append("unsafe ");
+                modifiers.Add("unsafe");
             if (IsPinvokeImpl)
-                modifiers.Append("extern ");
+                modifiers.Add("extern");
             if (GetCustomAttributes("System.Runtime.CompilerServices.FixedBufferAttribute").Any())
-                modifiers.Append("fixed ");
-            return modifiers.ToString();
+                modifiers.Add("fixed");
+            return modifiers;
         }
     }
 }

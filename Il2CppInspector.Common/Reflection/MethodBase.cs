@@ -211,7 +211,18 @@ namespace Il2CppInspector.Reflection
 
         protected abstract MethodBase MakeGenericMethodImpl(TypeInfo[] typeArguments);
 
-        public string GetAccessModifierString() => this switch {
+        public string GetAccessModifierString()
+        {
+            var accessModifier = GetAccessModifierStringRaw();
+            if (accessModifier == "")
+            {
+                return accessModifier;
+            }
+            return accessModifier + " ";
+        }
+
+        public string GetAccessModifierStringRaw() => this switch
+        {
             // Static constructors can not have an access level modifier
             { IsConstructor: true, IsStatic: true } => "",
 
@@ -221,55 +232,70 @@ namespace Il2CppInspector.Reflection
             // Explicit interface implementations do not have an access level modifier
             { IsVirtual: true, IsFinal: true, Attributes: var a } when (a & MethodAttributes.VtableLayoutMask) == MethodAttributes.NewSlot && Name.IndexOf('.') != -1 => "",
 
-            { IsPrivate: true } => "private ",
-            { IsPublic: true } => "public ",
-            { IsFamily: true } => "protected ",
-            { IsAssembly: true } => "internal ",
-            { IsFamilyOrAssembly: true } => "protected internal ",
-            { IsFamilyAndAssembly: true } => "private protected ",
+            { IsPrivate: true } => "private",
+            { IsPublic: true } => "public",
+            { IsFamily: true } => "protected",
+            { IsAssembly: true } => "internal",
+            { IsFamilyOrAssembly: true } => "protected internal",
+            { IsFamilyAndAssembly: true } => "private protected",
             _ => ""
         };
 
-        public string GetModifierString() {
+        public string GetModifierString()
+        {
+            var modifiers = GetModifierStringRaw();
+
+            if (modifiers.Count == 0)
+            {
+                return "";
+            }
+            
+            modifiers.Prepend(GetAccessModifierString());
+            modifiers.Add("");
+
+            return string.Join(" ", modifiers);
+        }
+
+        public List<string> GetModifierStringRaw()
+        {
+            List<string> modifiers = new List<string>();
             // Interface methods and properties have no visible modifiers (they are always declared 'public abstract')
             if (DeclaringType.IsInterface)
-                return string.Empty;
-
-            var modifiers = new StringBuilder(GetAccessModifierString());
+                return modifiers;
 
             if (IsAbstract)
-                modifiers.Append("abstract ");
+                modifiers.Add("abstract");
             // Methods that implement interfaces are IsVirtual && IsFinal with MethodAttributes.NewSlot (don't show 'virtual sealed' for these)
             if (IsFinal && (Attributes & MethodAttributes.VtableLayoutMask) == MethodAttributes.ReuseSlot)
-                modifiers.Append("sealed override ");
+                modifiers.Add("sealed override");
             // All abstract, override and sealed methods are also virtual by nature
             if (IsVirtual && !IsAbstract && !IsFinal && Name != "Finalize")
-                modifiers.Append((Attributes & MethodAttributes.VtableLayoutMask) == MethodAttributes.NewSlot ? "virtual " : "override ");
+                modifiers.Add((Attributes & MethodAttributes.VtableLayoutMask) == MethodAttributes.NewSlot ? "virtual" : "override");
             if (IsStatic)
-                modifiers.Append("static ");
+                modifiers.Add("static");
             if (RequiresUnsafeContext)
-                modifiers.Append("unsafe ");
+                modifiers.Add("unsafe");
             if ((Attributes & MethodAttributes.PinvokeImpl) != 0)
-                modifiers.Append("extern ");
+                modifiers.Add("extern");
 
             // Method hiding
             if ((DeclaringType.BaseType?.GetAllMethods().Any(m => SignatureEquals(m) && m.IsHideBySig) ?? false)
                 && (((Attributes & MethodAttributes.VtableLayoutMask) == MethodAttributes.ReuseSlot && !IsVirtual)
                     || (Attributes & MethodAttributes.VtableLayoutMask) == MethodAttributes.NewSlot)
                 && !OperatorMethodNames.ContainsKey(Name))
-                modifiers.Append("new ");
+                modifiers.Add("new");
 
             if (Name == "op_Implicit")
-                modifiers.Append("implicit ");
+                modifiers.Add("implicit");
             if (Name == "op_Explicit")
-                modifiers.Append("explicit ");
+                modifiers.Add("explicit");
 
             // Async depends on a compiler-generated attribute
             if (GetCustomAttributes("System.Runtime.CompilerServices.AsyncStateMachineAttribute").Any())
-                modifiers.Append("async ");
+                modifiers.Add("async");
 
             // Will include a trailing space
-            return modifiers.ToString();
+            return modifiers;
         }
 
         // Get C# syntax-friendly list of parameters

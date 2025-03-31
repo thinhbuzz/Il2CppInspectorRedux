@@ -1104,42 +1104,69 @@ namespace Il2CppInspector.Reflection
             return refList.ToList();
         }
 
-        public string GetAccessModifierString() => this switch
+        public string GetAccessModifierString()
         {
-            { IsPublic: true } => "public ",
-            { IsNotPublic: true } => "internal ",
+            var accessModifier = GetAccessModifierStringRaw();
+            if (accessModifier == "")
+            {
+                return accessModifier;
+            }
+            return accessModifier + " ";
+        }
 
-            { IsNestedPublic: true } => "public ",
-            { IsNestedPrivate: true } => "private ",
-            { IsNestedFamily: true } => "protected ",
-            { IsNestedAssembly: true } => "internal ",
-            { IsNestedFamORAssem: true } => "protected internal ",
-            { IsNestedFamANDAssem: true } => "private protected ",
+        public string GetAccessModifierStringRaw() => this switch
+        {
+            { IsPublic: true } => "public",
+            { IsNotPublic: true } => "internal",
+
+            { IsNestedPublic: true } => "public",
+            { IsNestedPrivate: true } => "private",
+            { IsNestedFamily: true } => "protected",
+            { IsNestedAssembly: true } => "internal",
+            { IsNestedFamORAssem: true } => "protected internal",
+            { IsNestedFamANDAssem: true } => "private protected",
             _ => throw new InvalidOperationException("Unknown type access modifier")
         };
 
-        public string GetModifierString() {
-            var modifiers = new StringBuilder(GetAccessModifierString());
+        public string GetModifierString()
+        {
+            var modifiers = GetModifierStringRaw();
+
+            if (modifiers.Count == 0)
+            {
+                return "";
+            }
+
+            modifiers.Prepend(GetAccessModifierString());
+            modifiers.Add("");
+
+            return string.Join(" ", modifiers);
+        }
+
+        public List<string> GetModifierStringRaw()
+        {
+            List<string> modifiers = new List<string>();
 
             // An abstract sealed class is a static class
             if (IsAbstract && IsSealed)
-                modifiers.Append("static ");
-            else {
+                modifiers.Add("static");
+            else
+            {
                 if (IsAbstract && !IsInterface)
-                    modifiers.Append("abstract ");
+                    modifiers.Add("abstract");
                 if (IsSealed && !IsValueType && !IsEnum)
-                    modifiers.Append("sealed ");
+                    modifiers.Add("sealed");
             }
             if (IsInterface)
-                modifiers.Append("interface ");
+                modifiers.Add("interface");
             else if (IsValueType)
-                modifiers.Append("struct ");
+                modifiers.Add("struct");
             else if (IsEnum)
-                modifiers.Append("enum ");
+                modifiers.Add("enum");
             else
-                modifiers.Append("class ");
+                modifiers.Add("class");
 
-            return modifiers.ToString();
+            return modifiers;
         }
 
         public string GetTypeConstraintsString(Scope scope) {
