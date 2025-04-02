@@ -499,11 +499,11 @@ namespace Il2CppInspector.Outputs
                     inst.Add(OpCodes.Ret.ToInstruction());
                 }
             }
-
+            var args = new List<(string, object)> {};
             if (method is MethodInfo)
             {
                 var returnType = (method as MethodInfo).ReturnType;
-                var args = new List<(string, object)> {
+                args = new List<(string, object)> {
                     ("NestedLevel", method.DeclaringType.FullName.Count(c => c == '+').ToString()),
                     ("ClassName", method.DeclaringType.Name),
                     ("Type", methodType),
@@ -511,14 +511,29 @@ namespace Il2CppInspector.Outputs
                     ("Modifier", string.Join(" ", method.GetModifierStringRaw())),
                     ("Name", method.Name),
                     ("ReturnType", GetFullNameWithGenerics(returnType)),
-                    // ("Parameters", string.Join("|", method.DeclaredParameters.Select(p => p.GetParameterString(Scope.Empty, false, false)))),
                     ("ParameterTypes", string.Join("|", method.DeclaredParameters.Select(p => GetFullNameWithGenerics(p.ParameterType)))),
                     ("Static", method.IsStatic.ToString()),
                     ("Slot", method.Definition.Slot != ushort.MaxValue ? method.Definition.Slot.ToString() : "0")
                 };
-
-                mMethod.AddAttribute(module, customMethodAttribute, args.ToArray());
             }
+            else
+            if (method is ConstructorInfo)
+            {
+                args = new List<(string, object)> {
+                    ("NestedLevel", method.DeclaringType.FullName.Count(c => c == '+').ToString()),
+                    ("ClassName", method.DeclaringType.Name),
+                    ("Type", "Constructor"),
+                    ("AccessModifier", method.GetAccessModifierStringRaw()),
+                    ("Modifier", string.Join(" ", method.GetModifierStringRaw())),
+                    ("Name", method.Name),
+                    ("ReturnType", ""),
+                    ("ParameterTypes", string.Join("|", method.DeclaredParameters.Select(p => GetFullNameWithGenerics(p.ParameterType)))),
+                    ("Static", method.IsStatic.ToString()),
+                    ("Slot", method.Definition.Slot != ushort.MaxValue ? method.Definition.Slot.ToString() : "0")
+                };
+            }
+
+            mMethod.AddAttribute(module, customMethodAttribute, args.ToArray());
 
             // Add custom attribute attributes
             foreach (var ca in method.CustomAttributes)
