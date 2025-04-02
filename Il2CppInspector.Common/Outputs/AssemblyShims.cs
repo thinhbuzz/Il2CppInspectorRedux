@@ -151,8 +151,7 @@ namespace Il2CppInspector.Outputs
             customMethodAttribute.Fields.Add(new FieldDefUser("Modifier", stringField, FieldAttributes.Public));
             customMethodAttribute.Fields.Add(new FieldDefUser("Name", stringField, FieldAttributes.Public));
             customMethodAttribute.Fields.Add(new FieldDefUser("ReturnType", stringField, FieldAttributes.Public));
-            customMethodAttribute.Fields.Add(new FieldDefUser("Parameters", stringField, FieldAttributes.Public));
-            // customMethodAttribute.Fields.Add(new FieldDefUser("ParameterTypes", stringField, FieldAttributes.Public));
+            customMethodAttribute.Fields.Add(new FieldDefUser("ParameterTypes", stringField, FieldAttributes.Public));
             customMethodAttribute.Fields.Add(new FieldDefUser("Slot", stringField, FieldAttributes.Public));
             customMethodAttribute.Fields.Add(new FieldDefUser("Static", stringField, FieldAttributes.Public));
             customMethodAttribute.AddDefaultConstructor(attributeCtorRef);
