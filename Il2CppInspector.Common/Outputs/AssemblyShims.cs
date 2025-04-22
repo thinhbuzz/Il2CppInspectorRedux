@@ -140,20 +140,19 @@ namespace Il2CppInspector.Outputs
             customClassAttribute.Fields.Add(new FieldDefUser("Modifier", stringField, FieldAttributes.Public));
             customClassAttribute.Fields.Add(new FieldDefUser("Parent", stringField, FieldAttributes.Public));
             customClassAttribute.Fields.Add(new FieldDefUser("Interfaces", stringField, FieldAttributes.Public));
-            customClassAttribute.Fields.Add(new FieldDefUser("Static", stringField, FieldAttributes.Public));
             customClassAttribute.AddDefaultConstructor(attributeCtorRef);
 
             customMethodAttribute = createAttribute("CustomMethodAttribute");
             customMethodAttribute.Fields.Add(new FieldDefUser("NestedLevel", stringField, FieldAttributes.Public));
             customMethodAttribute.Fields.Add(new FieldDefUser("ClassName", stringField, FieldAttributes.Public));
             customMethodAttribute.Fields.Add(new FieldDefUser("Type", stringField, FieldAttributes.Public));
+            customMethodAttribute.Fields.Add(new FieldDefUser("TypeName", stringField, FieldAttributes.Public));
             customMethodAttribute.Fields.Add(new FieldDefUser("AccessModifier", stringField, FieldAttributes.Public));
             customMethodAttribute.Fields.Add(new FieldDefUser("Modifier", stringField, FieldAttributes.Public));
             customMethodAttribute.Fields.Add(new FieldDefUser("Name", stringField, FieldAttributes.Public));
             customMethodAttribute.Fields.Add(new FieldDefUser("ReturnType", stringField, FieldAttributes.Public));
             customMethodAttribute.Fields.Add(new FieldDefUser("ParameterTypes", stringField, FieldAttributes.Public));
             customMethodAttribute.Fields.Add(new FieldDefUser("Slot", stringField, FieldAttributes.Public));
-            customMethodAttribute.Fields.Add(new FieldDefUser("Static", stringField, FieldAttributes.Public));
             customMethodAttribute.AddDefaultConstructor(attributeCtorRef);
 
             customFieldAttribute = createAttribute("CustomFieldAttribute");
@@ -162,8 +161,6 @@ namespace Il2CppInspector.Outputs
             customFieldAttribute.Fields.Add(new FieldDefUser("Offset", stringField, FieldAttributes.Public));
             customFieldAttribute.Fields.Add(new FieldDefUser("AccessModifier", stringField, FieldAttributes.Public));
             customFieldAttribute.Fields.Add(new FieldDefUser("Modifier", stringField, FieldAttributes.Public));
-            customFieldAttribute.Fields.Add(new FieldDefUser("Static", stringField, FieldAttributes.Public));
-            customFieldAttribute.Fields.Add(new FieldDefUser("Readonly", stringField, FieldAttributes.Public));
             customFieldAttribute.Fields.Add(new FieldDefUser("Type", stringField, FieldAttributes.Public));
             customFieldAttribute.Fields.Add(new FieldDefUser("Name", stringField, FieldAttributes.Public));
             customFieldAttribute.AddDefaultConstructor(attributeCtorRef);
@@ -297,7 +294,6 @@ namespace Il2CppInspector.Outputs
                 ("Modifier", string.Join(" ", type.GetModifierStringRaw())),
                 ("Parent", type.BaseType == null ? "" : GetFullNameWithGenerics(type.BaseType)),
                 ("Interfaces", type.ImplementedInterfaces == null ? "" : string.Join("|", type.ImplementedInterfaces.Select(i => GetFullNameWithGenerics(i)))),
-                ("Static", (type.IsAbstract && type.IsSealed).ToString()),
             };
 
             mType.AddAttribute(module, customClassAttribute, args.ToArray());
@@ -347,10 +343,8 @@ namespace Il2CppInspector.Outputs
                 ("Offset", $"0x{field.Offset:X2}"),
                 ("AccessModifier", field.GetAccessModifierStringRaw()),
                 ("Modifier", string.Join(" ", field.GetModifierStringRaw())),
-                ("Readonly", field.IsInitOnly.ToString()),
                 ("Name", field.Name),
                 ("Type", GetFullNameWithGenerics(field.FieldType)),
-                ("Static", field.IsStatic.ToString()),
             };
             mField.AddAttribute(module, customFieldAttribute, args.ToArray());
 
@@ -375,8 +369,8 @@ namespace Il2CppInspector.Outputs
 
             var mProp = new PropertyDefUser(prop.Name, s, (PropertyAttributes)prop.Attributes);
 
-            mProp.GetMethod = AddMethod(module, mType, prop.GetMethod, "Getter");
-            mProp.SetMethod = AddMethod(module, mType, prop.SetMethod, "Setter");
+            mProp.GetMethod = AddMethod(module, mType, prop.GetMethod, "Getter", prop.Name);
+            mProp.SetMethod = AddMethod(module, mType, prop.SetMethod, "Setter", prop.Name);
 
             // Add token attribute
             // Generic properties and constructed properties (from disperate get/set methods) have no definition
@@ -397,9 +391,9 @@ namespace Il2CppInspector.Outputs
         {
             var mEvent = new EventDefUser(evt.Name, GetTypeRef(module, evt.EventHandlerType), (EventAttributes)evt.Attributes);
 
-            mEvent.AddMethod = AddMethod(module, mType, evt.AddMethod, "EventAdd");
-            mEvent.RemoveMethod = AddMethod(module, mType, evt.RemoveMethod, "EventRemove");
-            mEvent.InvokeMethod = AddMethod(module, mType, evt.RaiseMethod, "EventInvoke");
+            mEvent.AddMethod = AddMethod(module, mType, evt.AddMethod, "EventAdd", evt.Name);
+            mEvent.RemoveMethod = AddMethod(module, mType, evt.RemoveMethod, "EventRemove", evt.Name);
+            mEvent.InvokeMethod = AddMethod(module, mType, evt.RaiseMethod, "EventInvoke", evt.Name);
 
             // Add token attribute
             mEvent.AddAttribute(module, tokenAttribute, ("Token", $"0x{evt.MetadataToken:X8}"));
@@ -414,7 +408,7 @@ namespace Il2CppInspector.Outputs
         }
 
         // Add a method to a type
-        private MethodDef AddMethod(ModuleDef module, TypeDef mType, MethodBase method, string methodType)
+        private MethodDef AddMethod(ModuleDef module, TypeDef mType, MethodBase method, string methodType, string methodTypeName = "")
         {
             // Undefined method
             if (method == null)
@@ -506,12 +500,12 @@ namespace Il2CppInspector.Outputs
                     ("NestedLevel", method.DeclaringType.FullName.Count(c => c == '+').ToString()),
                     ("ClassName", method.DeclaringType.Name),
                     ("Type", methodType),
+                    ("TypeName", methodTypeName),
                     ("AccessModifier", method.GetAccessModifierStringRaw()),
                     ("Modifier", string.Join(" ", method.GetModifierStringRaw())),
                     ("Name", method.Name),
                     ("ReturnType", GetFullNameWithGenerics(returnType)),
                     ("ParameterTypes", string.Join("|", method.DeclaredParameters.Select(p => GetFullNameWithGenerics(p.ParameterType)))),
-                    ("Static", method.IsStatic.ToString()),
                     ("Slot", method.Definition.Slot != ushort.MaxValue ? method.Definition.Slot.ToString() : "0")
                 };
             }
@@ -522,12 +516,12 @@ namespace Il2CppInspector.Outputs
                     ("NestedLevel", method.DeclaringType.FullName.Count(c => c == '+').ToString()),
                     ("ClassName", method.DeclaringType.Name),
                     ("Type", "Constructor"),
+                    ("TypeName", ""),
                     ("AccessModifier", method.GetAccessModifierStringRaw()),
                     ("Modifier", string.Join(" ", method.GetModifierStringRaw())),
                     ("Name", method.Name),
                     ("ReturnType", ""),
                     ("ParameterTypes", string.Join("|", method.DeclaredParameters.Select(p => GetFullNameWithGenerics(p.ParameterType)))),
-                    ("Static", method.IsStatic.ToString()),
                     ("Slot", method.Definition.Slot != ushort.MaxValue ? method.Definition.Slot.ToString() : "0")
                 };
             }
