@@ -16,6 +16,10 @@ using Assembly = Il2CppInspector.Reflection.Assembly;
 using CustomAttributeData = Il2CppInspector.Reflection.CustomAttributeData;
 using MethodInfo = Il2CppInspector.Reflection.MethodInfo;
 using TypeInfo = Il2CppInspector.Reflection.TypeInfo;
+using MethodBase = Il2CppInspector.Reflection.MethodBase;
+using FieldInfo = Il2CppInspector.Reflection.FieldInfo;
+using PropertyInfo = Il2CppInspector.Reflection.PropertyInfo;
+using EventInfo = Il2CppInspector.Reflection.EventInfo;
 
 namespace Il2CppInspector.Outputs
 {
@@ -42,6 +46,173 @@ namespace Il2CppInspector.Outputs
         // Assembly attributes we have already emitted
         private HashSet<CustomAttributeData> usedAssemblyAttributes = new HashSet<CustomAttributeData>();
         private readonly object usedAssemblyAttributesLock = new object();
+
+        // Generate detailed attribute information similar to AssemblyShims
+        private string GenerateCustomClassAttributeInfo(TypeInfo type, string prefix = "")
+        {
+            if (SuppressMetadata)
+                return "";
+
+            var sb = new StringBuilder();
+            sb.Append($"{prefix}[CustomClass(NestedLevel = \"{type.FullName.Count(c => c == '+')}\", ");
+            sb.Append($"Name = \"{EscapeString(type.Name)}\", ");
+            sb.Append($"AccessModifier = \"{EscapeString(type.GetAccessModifierStringRaw())}\", ");
+            sb.Append($"Modifier = \"{EscapeString(string.Join(" ", type.GetModifierStringRaw()))}\", ");
+            sb.Append($"Parent = \"{EscapeString(type.BaseType == null ? "" : GetFullNameWithGenerics(type.BaseType))}\", ");
+            sb.Append($"Interfaces = \"{EscapeString(type.ImplementedInterfaces?.Any() == true ? string.Join("|", type.ImplementedInterfaces.Select(i => GetFullNameWithGenerics(i))) : "")}\", ");
+            if (type.Definition.IsValid)
+                sb.Append($"Token = \"0x{type.MetadataToken:X8}\", ");
+            sb.Remove(sb.Length - 2, 2); // Remove trailing ", "
+            sb.Append(")]\n");
+            return sb.ToString();
+        }
+
+        private string GenerateCustomMethodAttributeInfo(MethodBase method, string methodType, string methodTypeName = "", string prefix = "")
+        {
+            if (SuppressMetadata)
+                return "";
+
+            var sb = new StringBuilder();
+            sb.Append($"{prefix}[CustomMethod(NestedLevel = \"{method.DeclaringType.FullName.Count(c => c == '+')}\", ");
+            sb.Append($"ClassName = \"{EscapeString(method.DeclaringType.Name)}\", ");
+            sb.Append($"Type = \"{EscapeString(methodType)}\", ");
+            sb.Append($"TypeName = \"{EscapeString(methodTypeName)}\", ");
+            sb.Append($"AccessModifier = \"{EscapeString(method.GetAccessModifierStringRaw())}\", ");
+            sb.Append($"Modifier = \"{EscapeString(string.Join(" ", method.GetModifierStringRaw()))}\", ");
+            sb.Append($"Name = \"{EscapeString(method.Name)}\", ");
+            if (method is MethodInfo mi)
+                sb.Append($"ReturnType = \"{EscapeString(GetFullNameWithGenerics(mi.ReturnType))}\", ");
+            else
+                sb.Append($"ReturnType = \"\", ");
+            sb.Append($"ParameterTypes = \"{EscapeString(string.Join("|", method.DeclaredParameters.Select(p => GetFullNameWithGenerics(p.ParameterType))))}\", ");
+            sb.Append($"Slot = \"{(method.Definition.Slot != ushort.MaxValue ? method.Definition.Slot.ToString() : "0")}\"");
+            if (method.VirtualAddress != null)
+                sb.Append($", Address = \"{method.VirtualAddress.ToAddressString()}\"");
+            sb.Append(")]\n");
+            return sb.ToString();
+        }
+
+        private string GenerateCustomFieldAttributeInfo(FieldInfo field, string prefix = "")
+        {
+            if (SuppressMetadata)
+                return "";
+
+            var sb = new StringBuilder();
+            sb.Append($"{prefix}[CustomField(NestedLevel = \"{field.DeclaringType.FullName.Count(c => c == '+')}\", ");
+            sb.Append($"ClassName = \"{EscapeString(field.DeclaringType.Name)}\", ");
+            sb.Append($"Offset = \"0x{field.Offset:X2}\", ");
+            sb.Append($"AccessModifier = \"{EscapeString(field.GetAccessModifierStringRaw())}\", ");
+            sb.Append($"Modifier = \"{EscapeString(string.Join(" ", field.GetModifierStringRaw()))}\", ");
+            sb.Append($"Type = \"{EscapeString(GetFullNameWithGenerics(field.FieldType))}\", ");
+            sb.Append($"Name = \"{EscapeString(field.Name)}\"");
+            if (field.DefaultValueMetadataAddress != 0)
+                sb.Append($", MetadataOffset = \"0x{field.DefaultValueMetadataAddress:X8}\"");
+            if (field.HasFieldRVA)
+            {
+                var fieldSize = field.FieldType.Sizes.NativeSize;
+                var preview = model.Package.Metadata.ReadBytes((long)field.DefaultValueMetadataAddress, fieldSize);
+                sb.Append($", MetadataPreview = \"{Convert.ToHexString(preview)}\"");
+            }
+            sb.Append(")]\n");
+            return sb.ToString();
+        }
+
+        private string GenerateCustomPropertyAttributeInfo(PropertyInfo prop, string prefix = "")
+        {
+            if (SuppressMetadata)
+                return "";
+
+            var sb = new StringBuilder();
+            var primary = (prop.GetMethod?.Attributes ?? 0) >= (prop.SetMethod?.Attributes ?? 0) ? prop.GetMethod : prop.SetMethod ?? prop.GetMethod;
+            if (primary != null)
+            {
+                sb.Append($"{prefix}[CustomProperty(NestedLevel = \"{prop.DeclaringType.FullName.Count(c => c == '+')}\", ");
+                sb.Append($"ClassName = \"{EscapeString(prop.DeclaringType.Name)}\", ");
+                sb.Append($"Name = \"{EscapeString(prop.Name)}\", ");
+                sb.Append($"Type = \"{EscapeString(GetFullNameWithGenerics(prop.PropertyType))}\", ");
+                sb.Append($"AccessModifier = \"{EscapeString(primary.GetAccessModifierStringRaw())}\", ");
+                sb.Append($"Modifier = \"{EscapeString(string.Join(" ", primary.GetModifierStringRaw()))}\"");
+                if (prop.Definition.IsValid)
+                    sb.Append($", Token = \"0x{prop.MetadataToken:X8}\"");
+                if (prop.GetMethod?.VirtualAddress != null || prop.SetMethod?.VirtualAddress != null)
+                {
+                    var addresses = new List<string>();
+                    if (prop.GetMethod?.VirtualAddress != null)
+                        addresses.Add($"get {prop.GetMethod.VirtualAddress.ToAddressString()}");
+                    if (prop.SetMethod?.VirtualAddress != null)
+                        addresses.Add($"set {prop.SetMethod.VirtualAddress.ToAddressString()}");
+                    sb.Append($", Address = \"{EscapeString(string.Join(", ", addresses))}\"");
+                }
+                sb.Append(")]\n");
+            }
+            return sb.ToString();
+        }
+
+        private string GenerateCustomEventAttributeInfo(EventInfo evt, string prefix = "")
+        {
+            if (SuppressMetadata)
+                return "";
+
+            var sb = new StringBuilder();
+            var primary = evt.AddMethod ?? evt.RemoveMethod ?? evt.RaiseMethod;
+            if (primary != null)
+            {
+                sb.Append($"{prefix}[CustomEvent(NestedLevel = \"{evt.DeclaringType.FullName.Count(c => c == '+')}\", ");
+                sb.Append($"ClassName = \"{EscapeString(evt.DeclaringType.Name)}\", ");
+                sb.Append($"Name = \"{EscapeString(evt.Name)}\", ");
+                sb.Append($"Type = \"{EscapeString(GetFullNameWithGenerics(evt.EventHandlerType))}\", ");
+                sb.Append($"AccessModifier = \"{EscapeString(primary.GetAccessModifierStringRaw())}\", ");
+                sb.Append($"Modifier = \"{EscapeString(string.Join(" ", primary.GetModifierStringRaw()))}\"");
+                if (evt.MetadataToken != 0)
+                    sb.Append($", Token = \"0x{evt.MetadataToken:X8}\"");
+                sb.Append(")]\n");
+            }
+            return sb.ToString();
+        }
+
+        private string GenerateAttributeAttributeInfo(CustomAttributeData ca, string prefix = "")
+        {
+            if (SuppressMetadata)
+                return "";
+
+            var sb = new StringBuilder();
+            sb.Append($"{prefix}[Attribute(Name = \"{EscapeString(ca.AttributeType.Name)}\"");
+            if (ca.VirtualAddress.Start != 0)
+            {
+                sb.Append($", RVA = \"{(ca.VirtualAddress.Start - model.Package.BinaryImage.ImageBase).ToAddressString()}\"");
+                sb.Append($", Offset = \"0x{model.Package.BinaryImage.MapVATR(ca.VirtualAddress.Start):X}\"");
+            }
+            sb.Append(")]\n");
+            return sb.ToString();
+        }
+
+        private string GetFullNameWithGenerics(TypeInfo type)
+        {
+            if (type == null)
+                return "";
+
+            var fullName = (type.IsGenericParameter || type.Namespace == "") ? "" : type.Namespace + ".";
+            fullName += type.IsGenericType ? type.BaseName : type.Name;
+            if (type.IsArray && !fullName.EndsWith("[]"))
+            {
+                fullName += "[]";
+            }
+            if (type.IsGenericType && type.GenericTypeArguments.Length > 0)
+            {
+                fullName += "<";
+                fullName += string.Join(", ", type.GenericTypeArguments.Select(p => GetFullNameWithGenerics(p)));
+                fullName += ">";
+            }
+            return fullName;
+        }
+
+        private string EscapeString(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+                return input;
+            
+            return input.Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t");
+        }
 
         public CSharpCodeStubs(TypeModel model) => this.model = model;
 
@@ -393,6 +564,9 @@ namespace Il2CppInspector.Outputs
                     if (MustCompile && field.GetCustomAttributes(CGAttribute).Any())
                         continue;
 
+                    // Generate custom field attribute info
+                    sb.Append(GenerateCustomFieldAttributeInfo(field, prefix + "\t"));
+
                     if (field.IsNotSerialized)
                         sb.Append(prefix + "\t[NonSerialized]\n");
 
@@ -402,6 +576,10 @@ namespace Il2CppInspector.Outputs
                     // Attributes
                     sb.Append(field.CustomAttributes.Where(a => a.AttributeType.FullName != FBAttribute).OrderBy(a => a.AttributeType.Name)
                         .ToString(scope, prefix + "\t", emitPointer: !SuppressMetadata, mustCompile: MustCompile));
+                    
+                    // Add individual attribute info
+                    foreach (var ca in field.CustomAttributes.Where(a => a.AttributeType.FullName != FBAttribute))
+                        sb.Append(GenerateAttributeAttributeInfo(ca, prefix + "\t"));
                     sb.Append(prefix + "\t");
                     sb.Append(field.GetModifierString());
 
@@ -438,9 +616,16 @@ namespace Il2CppInspector.Outputs
             sb = new StringBuilder();
             var hasIndexer = false;
             foreach (var prop in type.DeclaredProperties) {
+                // Generate custom property attribute info
+                sb.Append(GenerateCustomPropertyAttributeInfo(prop, prefix + "\t"));
+
                 // Attributes
                 sb.Append(prop.CustomAttributes.OrderBy(a => a.AttributeType.Name)
                     .ToString(scope, prefix + "\t", emitPointer: !SuppressMetadata, mustCompile: MustCompile));
+                
+                // Add individual attribute info
+                foreach (var ca in prop.CustomAttributes)
+                    sb.Append(GenerateAttributeAttributeInfo(ca, prefix + "\t"));
 
                 // The access mask enum values go from 1 (private) to 6 (public) in order from most to least restrictive
                 var getAccess = (prop.GetMethod?.Attributes ?? 0) & MethodAttributes.MemberAccessMask;
@@ -494,9 +679,16 @@ namespace Il2CppInspector.Outputs
             // Events
             sb = new StringBuilder();
             foreach (var evt in type.DeclaredEvents) {
+                // Generate custom event attribute info
+                sb.Append(GenerateCustomEventAttributeInfo(evt, prefix + "\t"));
+
                 // Attributes
                 sb.Append(evt.CustomAttributes.OrderBy(a => a.AttributeType.Name)
                     .ToString(scope, prefix + "\t", emitPointer: !SuppressMetadata, mustCompile: MustCompile));
+                
+                // Add individual attribute info
+                foreach (var ca in evt.CustomAttributes)
+                    sb.Append(GenerateAttributeAttributeInfo(ca, prefix + "\t"));
 
                 string modifiers = evt.AddMethod?.GetModifierString();
                 sb.Append($"{prefix}\t{modifiers}event {evt.EventHandlerType.GetScopedCSharpName(scope)} {evt.CSharpName}");
@@ -531,9 +723,16 @@ namespace Il2CppInspector.Outputs
                 sb.Append($"{prefix}\t{(type.IsAbstract? "protected" : "public")} {type.CSharpBaseName}() {{}} // Dummy constructor\n");
 
             foreach (var method in type.DeclaredConstructors) {
+                // Generate custom method attribute info
+                sb.Append(GenerateCustomMethodAttributeInfo(method, "Constructor", "", prefix + "\t"));
+
                 // Attributes
                 sb.Append(method.CustomAttributes.OrderBy(a => a.AttributeType.Name)
                     .ToString(scope, prefix + "\t", emitPointer: !SuppressMetadata, mustCompile: MustCompile));
+                
+                // Add individual attribute info
+                foreach (var ca in method.CustomAttributes)
+                    sb.Append(GenerateAttributeAttributeInfo(ca, prefix + "\t"));
 
                 sb.Append($"{prefix}\t{method.GetModifierString()}{method.DeclaringType.CSharpBaseName}{method.GetTypeParametersString(scope)}");
                 sb.Append($"({method.GetParametersString(scope, !SuppressMetadata)})");
@@ -586,6 +785,9 @@ namespace Il2CppInspector.Outputs
             // Type declaration
             sb = new StringBuilder();
 
+            // Generate custom class attribute info
+            sb.Append(GenerateCustomClassAttributeInfo(type, prefix));
+
             if (type.IsImport)
                 sb.Append(prefix + "[ComImport]\n");
             if (type.IsSerializable)
@@ -595,6 +797,10 @@ namespace Il2CppInspector.Outputs
             // See https://docs.microsoft.com/en-us/dotnet/api/system.reflection.defaultmemberattribute?view=netframework-4.8
             sb.Append(type.CustomAttributes.Where(a => (a.AttributeType.FullName != DMAttribute || !hasIndexer) && a.AttributeType.FullName != ExtAttribute)
                                             .OrderBy(a => a.AttributeType.Name).ToString(scope, prefix, emitPointer: !SuppressMetadata, mustCompile: MustCompile));
+            
+            // Add individual attribute info
+            foreach (var ca in type.CustomAttributes.Where(a => (a.AttributeType.FullName != DMAttribute || !hasIndexer) && a.AttributeType.FullName != ExtAttribute))
+                sb.Append(GenerateAttributeAttributeInfo(ca, prefix));
 
             // Roll-up multicast delegates to use the 'delegate' syntactic sugar
             if (type.IsClass && type.IsSealed && type.BaseType?.FullName == "System.MulticastDelegate") {
@@ -656,10 +862,18 @@ namespace Il2CppInspector.Outputs
             if (MustCompile && method.GetCustomAttributes(CGAttribute).Any())
                 return writer;
 
+            // Generate custom method attribute info
+            var methodType = method.CustomAttributes.Any(a => a.AttributeType.FullName == ExtAttribute) ? "Extension" : "Normal";
+            writer.Append(GenerateCustomMethodAttributeInfo(method, methodType, "", prefix + "\t"));
+
             // Attributes
             writer.Append(method.CustomAttributes.Where(a => a.AttributeType.FullName != ExtAttribute && a.AttributeType.FullName != AsyncAttribute)
                 .OrderBy(a => a.AttributeType.Name)
                 .ToString(scope, prefix + "\t", emitPointer: !SuppressMetadata, mustCompile: MustCompile));
+            
+            // Add individual attribute info
+            foreach (var ca in method.CustomAttributes.Where(a => a.AttributeType.FullName != ExtAttribute && a.AttributeType.FullName != AsyncAttribute))
+                writer.Append(GenerateAttributeAttributeInfo(ca, prefix + "\t"));
 
             // IL2CPP doesn't seem to retain return type attributes
             //writer.Append(method.ReturnType.CustomAttributes.ToString(prefix + "\t", "return: ", emitPointer: !SuppressMetadata));
