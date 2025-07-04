@@ -1,6 +1,7 @@
 #!/bin/bash
+# dotnet restore ./Il2CppInspector.CLI/Il2CppInspector.CLI.csproj -r osx-arm64
 # dotnet publish -c Release --no-self-contained --no-restore -o ./osx-arm64 -r osx-arm64 ./Il2CppInspector.CLI/Il2CppInspector.CLI.csproj
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p output
-"$SCRIPT_DIR/osx-arm64/Il2CppInspector" -i libil2cpp.so -m global-metadata.dat --select-outputs -d output/DummyDll -o metadata.json -p il2cpp.py -t IDA
+"$SCRIPT_DIR/osx-arm64/Il2CppInspector" -i libil2cpp.so -m global-metadata.dat --select-outputs -d output/DummyDll -o metadata.json -p il2cpp.py -t IDA -l tree -c output/Code
 read -p "Press enter to continue..."
