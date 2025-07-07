@@ -2,7 +2,7 @@
 import AdmZip from "adm-zip";
 import { $ } from "bun";
 import { mkdir, rm } from "fs/promises";
-import { rmSync } from "fs";
+import { existsSync, rmSync } from "fs";
 import { dirname, isAbsolute, join } from "path";
 import { parseArgs } from "util";
 
@@ -44,6 +44,11 @@ process.on("exit", () => {
   console.log("Cleaning up...");
   rmSync(tempFolder, { recursive: true, force: true });
 });
+
+if (!existsSync(apkm)) {
+  console.error(`${apkm} not found`);
+  process.exit(1);
+}
 
 const apkZipFile = new AdmZip(apkm);
 

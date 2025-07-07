@@ -15,7 +15,7 @@ if [ ! -d "$BUN_DIR/node_modules" ]; then
 fi
 
 # Check if Il2CppInspector exists
-IL2CPP_INSPECTOR="$SCRIPT_DIR/Il2CppInspector"
+export IL2CPP_INSPECTOR="$SCRIPT_DIR/Il2CppInspector"
 if [ ! -f "$IL2CPP_INSPECTOR" ]; then
     echo "Il2CppInspector not found in $SCRIPT_DIR"
     read -p "Press any key to continue..."
@@ -38,5 +38,3 @@ else
     # --apkm not present, add it
     bun run "$BUN_DIR/index.ts" --apkm "$@"
 fi
-
-read -p "Press any key to continue..."
