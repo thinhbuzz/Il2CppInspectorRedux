@@ -87,6 +87,7 @@ jobs:
 
       - name: Copy Builder scripts
         run: |
+          mkdir -p ./${{ matrix.rid }}/builder
           cp bun-builder/index.ts bun-builder/bun.lock bun-builder/package.json ./${{ matrix.rid }}/builder/
 
       - name: Upload artifacts
