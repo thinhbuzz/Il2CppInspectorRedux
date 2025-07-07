@@ -45,10 +45,9 @@ process.on("exit", () => {
   rmSync(tempFolder, { recursive: true, force: true });
 });
 
-console.log("apkm", process.cwd());
 const apkZipFile = new AdmZip(apkm);
 
-console.log("Extracting base.apk from apkm");
+console.log(`Extracting base.apk from ${apkm}`);
 tryExtractApks({
   zip: apkZipFile,
   zipPath: apkm,
@@ -56,7 +55,7 @@ tryExtractApks({
   targetFolder: tempFolder,
   targetName: "base.apk",
 });
-console.log("Extracting split_config.arm64_v8a.apk from apkm");
+console.log(`Extracting split_config.arm64_v8a.apk from ${apkm}`);
 tryExtractApks({
   zip: apkZipFile,
   zipPath: apkm,
@@ -88,7 +87,7 @@ tryExtractApks({
   targetName: "libil2cpp.so",
 });
 
-console.log("Running il2cpp in", apkFolder);
+console.log("Running Il2CppInspectorRedux in", apkFolder);
 await $`$IL2CPP_INSPECTOR -i libil2cpp.so -m global-metadata.dat --select-outputs -d output/DummyDll -o metadata.json -p il2cpp.py -t IDA -l tree -c output/Code`.cwd(
   apkFolder
 );
