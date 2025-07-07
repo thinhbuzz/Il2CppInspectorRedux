@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+rm -rf ./osx-arm64
 dotnet restore ./Il2CppInspector.CLI/Il2CppInspector.CLI.csproj -r osx-arm64
 dotnet publish -c Release --no-self-contained --no-restore -o ./osx-arm64 -r osx-arm64 ./Il2CppInspector.CLI/Il2CppInspector.CLI.csproj
 cp il2cpp pogo ./osx-arm64/
