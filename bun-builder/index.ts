@@ -3,7 +3,7 @@ import AdmZip from "adm-zip";
 import { $ } from "bun";
 import { mkdir, rm } from "fs/promises";
 import { rmSync } from "fs";
-import { dirname, join } from "path";
+import { dirname, isAbsolute, join } from "path";
 import { parseArgs } from "util";
 
 const { values } = parseArgs({
@@ -36,45 +36,87 @@ if (help || !apkm || !baseapk || !splitapk) {
   process.exit(0);
 }
 
-
-const apkFolder = dirname(apkm);
+const apkFolder = isAbsolute(apkm) ? dirname(apkm) : process.cwd();
 const tempFolder = join(apkFolder, "temp");
 await rm(tempFolder, { recursive: true, force: true });
 await mkdir(tempFolder, { recursive: true });
-process.on('exit', () => {
+process.on("exit", () => {
   console.log("Cleaning up...");
   rmSync(tempFolder, { recursive: true, force: true });
 });
 
+console.log("apkm", process.cwd());
 const apkZipFile = new AdmZip(apkm);
 
 console.log("Extracting base.apk from apkm");
-tryExtractApks(apkZipFile, [baseapk, "com.nianticlabs.pokemongo.apk"], tempFolder, "base.apk");
+tryExtractApks({
+  zip: apkZipFile,
+  zipPath: apkm,
+  apks: [baseapk, "com.nianticlabs.pokemongo.apk"],
+  targetFolder: tempFolder,
+  targetName: "base.apk",
+});
 console.log("Extracting split_config.arm64_v8a.apk from apkm");
-tryExtractApks(apkZipFile, [splitapk, "config.arm64_v8a.apk"], tempFolder, "split_config.arm64_v8a.apk");
+tryExtractApks({
+  zip: apkZipFile,
+  zipPath: apkm,
+  apks: [splitapk, "config.arm64_v8a.apk"],
+  targetFolder: tempFolder,
+  targetName: "split_config.arm64_v8a.apk",
+});
 
 const baseApkPath = join(tempFolder, "base.apk");
 const splitApkPath = join(tempFolder, "split_config.arm64_v8a.apk");
 
 const baseApkZipFile = new AdmZip(baseApkPath);
 console.log("Extracting global-metadata.dat from base.apk");
-tryExtractApks(baseApkZipFile, ["assets/bin/Data/Managed/Metadata/global-metadata.dat"], apkFolder, "global-metadata.dat");
+tryExtractApks({
+  zip: baseApkZipFile,
+  zipPath: baseApkPath,
+  apks: ["assets/bin/Data/Managed/Metadata/global-metadata.dat"],
+  targetFolder: apkFolder,
+  targetName: "global-metadata.dat",
+});
 
 const splitApkZipFile = new AdmZip(splitApkPath);
 console.log("Extracting libil2cpp.so from split_config.arm64_v8a.apk");
-tryExtractApks(splitApkZipFile, ["lib/arm64-v8a/libil2cpp.so"], apkFolder, "libil2cpp.so");
+tryExtractApks({
+  zip: splitApkZipFile,
+  zipPath: splitApkPath,
+  apks: ["lib/arm64-v8a/libil2cpp.so"],
+  targetFolder: apkFolder,
+  targetName: "libil2cpp.so",
+});
 
-console.log("Running il2cpp...");
-await $`$IL2CPP_INSPECTOR -i libil2cpp.so -m global-metadata.dat --select-outputs -d output/DummyDll -o metadata.json -p il2cpp.py -t IDA -l tree -c output/Code`.cwd(apkFolder);
+console.log("Running il2cpp in", apkFolder);
+await $`$IL2CPP_INSPECTOR -i libil2cpp.so -m global-metadata.dat --select-outputs -d output/DummyDll -o metadata.json -p il2cpp.py -t IDA -l tree -c output/Code`.cwd(
+  apkFolder
+);
 console.log("Done!");
 
-function tryExtractApks(zip: AdmZip, apks: string[], targetFolder: string, targetName: string): string | undefined | never {
+interface TryExtractApksOptions {
+  zip: AdmZip;
+  zipPath: string;
+  apks: string[];
+  targetFolder: string;
+  targetName: string;
+}
+
+function tryExtractApks({
+  zip,
+  zipPath,
+  apks,
+  targetFolder,
+  targetName,
+}: TryExtractApksOptions) {
   for (const apk of apks) {
     try {
-      if (zip.extractEntryTo(apk, targetFolder, false, true, false, targetName)) {
-        return apk;
+      if (
+        zip.extractEntryTo(apk, targetFolder, false, true, false, targetName)
+      ) {
+        return;
       }
-    } catch(e) {
+    } catch (e) {
       if (e instanceof Error && e.message === "ADM-ZIP: Entry doesn't exist") {
         continue;
       }
@@ -82,6 +124,6 @@ function tryExtractApks(zip: AdmZip, apks: string[], targetFolder: string, targe
       process.exit(1);
     }
   }
-  console.error(`Not found ${apks.join(", ")} in ${apkm}`);
+  console.error(`Not found ${apks.join(", ")} in ${zipPath}`);
   process.exit(1);
 }

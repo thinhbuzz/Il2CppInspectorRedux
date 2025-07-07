@@ -14,18 +14,18 @@ IF NOT EXIST %IL2CPP_INSPECTOR% (
     EXIT /B 1
 )
 REM Check if --apkm is already in the arguments
-SET APKM_FLAG=--apkm
-SET ARGS=%*
-ECHO %ARGS% | FIND /I "%APKM_FLAG%" >nul
+set HAS_APKM_ARG=false
 
-IF %ERRORLEVEL% EQU 0 (
-    REM --apkm already present, use arguments as-is
-    SET ERRORLEVEL=0
-    bun run %BUN_DIR%index.ts %*
-) ELSE (
-    REM --apkm not present, add it
-    SET ERRORLEVEL=0
-    bun run %BUN_DIR%index.ts --apkm %*
+:: Loop through all arguments
+for %%A in (%*) do (
+    if "%%A"=="--apkm" set HAS_APKM_ARG=true
+)
+
+:: Check if --apkm was found
+if "%HAS_APKM_ARG%"=="true" (
+    bun run %BUN_DIR%/index.ts %*
+) else (
+    bun run %BUN_DIR%/index.ts --apkm %*
 )
 
 IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%

@@ -23,7 +23,15 @@ if [ ! -f "$IL2CPP_INSPECTOR" ]; then
 fi
 
 # Check if --apkm is already in the arguments
-if [[ "$*" == *"--apkm"* ]]; then
+HAS_APKM_ARG=false
+for arg in "$@"; do
+    if [ "$arg" = "--apkm" ]; then
+        HAS_APKM_ARG=true
+        break
+    fi
+done
+
+if [ "$HAS_APKM_ARG" = true ]; then
     # --apkm already present, use arguments as-is
     bun run "$BUN_DIR/index.ts" "$@"
 else
