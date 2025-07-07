@@ -60,8 +60,6 @@ namespace Il2CppInspector.Outputs
             sb.Append($"Modifier = \"{EscapeString(string.Join(" ", type.GetModifierStringRaw()))}\", ");
             sb.Append($"Parent = \"{EscapeString(type.BaseType == null ? "" : GetFullNameWithGenerics(type.BaseType))}\", ");
             sb.Append($"Interfaces = \"{EscapeString(type.ImplementedInterfaces?.Any() == true ? string.Join("|", type.ImplementedInterfaces.Select(i => GetFullNameWithGenerics(i))) : "")}\", ");
-            if (type.Definition.IsValid)
-                sb.Append($"Token = \"0x{type.MetadataToken:X8}\", ");
             sb.Remove(sb.Length - 2, 2); // Remove trailing ", "
             sb.Append(")]\n");
             return sb.ToString();
@@ -86,8 +84,6 @@ namespace Il2CppInspector.Outputs
                 sb.Append($"ReturnType = \"\", ");
             sb.Append($"ParameterTypes = \"{EscapeString(string.Join("|", method.DeclaredParameters.Select(p => GetFullNameWithGenerics(p.ParameterType))))}\", ");
             sb.Append($"Slot = \"{(method.Definition.Slot != ushort.MaxValue ? method.Definition.Slot.ToString() : "0")}\"");
-            if (method.VirtualAddress != null)
-                sb.Append($", Address = \"{method.VirtualAddress.ToAddressString()}\"");
             sb.Append(")]\n");
             return sb.ToString();
         }
@@ -103,70 +99,9 @@ namespace Il2CppInspector.Outputs
             sb.Append($"Offset = \"0x{field.Offset:X2}\", ");
             sb.Append($"AccessModifier = \"{EscapeString(field.GetAccessModifierStringRaw())}\", ");
             sb.Append($"Modifier = \"{EscapeString(string.Join(" ", field.GetModifierStringRaw()))}\", ");
-            sb.Append($"Type = \"{EscapeString(GetFullNameWithGenerics(field.FieldType))}\", ");
             sb.Append($"Name = \"{EscapeString(field.Name)}\"");
-            if (field.DefaultValueMetadataAddress != 0)
-                sb.Append($", MetadataOffset = \"0x{field.DefaultValueMetadataAddress:X8}\"");
-            if (field.HasFieldRVA)
-            {
-                var fieldSize = field.FieldType.Sizes.NativeSize;
-                var preview = model.Package.Metadata.ReadBytes((long)field.DefaultValueMetadataAddress, fieldSize);
-                sb.Append($", MetadataPreview = \"{Convert.ToHexString(preview)}\"");
-            }
+            sb.Append($"Type = \"{EscapeString(GetFullNameWithGenerics(field.FieldType))}\", ");
             sb.Append(")]\n");
-            return sb.ToString();
-        }
-
-        private string GenerateCustomPropertyAttributeInfo(PropertyInfo prop, string prefix = "")
-        {
-            if (SuppressMetadata)
-                return "";
-
-            var sb = new StringBuilder();
-            var primary = (prop.GetMethod?.Attributes ?? 0) >= (prop.SetMethod?.Attributes ?? 0) ? prop.GetMethod : prop.SetMethod ?? prop.GetMethod;
-            if (primary != null)
-            {
-                sb.Append($"{prefix}[CustomProperty(NestedLevel = \"{prop.DeclaringType.FullName.Count(c => c == '+')}\", ");
-                sb.Append($"ClassName = \"{EscapeString(prop.DeclaringType.Name)}\", ");
-                sb.Append($"Name = \"{EscapeString(prop.Name)}\", ");
-                sb.Append($"Type = \"{EscapeString(GetFullNameWithGenerics(prop.PropertyType))}\", ");
-                sb.Append($"AccessModifier = \"{EscapeString(primary.GetAccessModifierStringRaw())}\", ");
-                sb.Append($"Modifier = \"{EscapeString(string.Join(" ", primary.GetModifierStringRaw()))}\"");
-                if (prop.Definition.IsValid)
-                    sb.Append($", Token = \"0x{prop.MetadataToken:X8}\"");
-                if (prop.GetMethod?.VirtualAddress != null || prop.SetMethod?.VirtualAddress != null)
-                {
-                    var addresses = new List<string>();
-                    if (prop.GetMethod?.VirtualAddress != null)
-                        addresses.Add($"get {prop.GetMethod.VirtualAddress.ToAddressString()}");
-                    if (prop.SetMethod?.VirtualAddress != null)
-                        addresses.Add($"set {prop.SetMethod.VirtualAddress.ToAddressString()}");
-                    sb.Append($", Address = \"{EscapeString(string.Join(", ", addresses))}\"");
-                }
-                sb.Append(")]\n");
-            }
-            return sb.ToString();
-        }
-
-        private string GenerateCustomEventAttributeInfo(EventInfo evt, string prefix = "")
-        {
-            if (SuppressMetadata)
-                return "";
-
-            var sb = new StringBuilder();
-            var primary = evt.AddMethod ?? evt.RemoveMethod ?? evt.RaiseMethod;
-            if (primary != null)
-            {
-                sb.Append($"{prefix}[CustomEvent(NestedLevel = \"{evt.DeclaringType.FullName.Count(c => c == '+')}\", ");
-                sb.Append($"ClassName = \"{EscapeString(evt.DeclaringType.Name)}\", ");
-                sb.Append($"Name = \"{EscapeString(evt.Name)}\", ");
-                sb.Append($"Type = \"{EscapeString(GetFullNameWithGenerics(evt.EventHandlerType))}\", ");
-                sb.Append($"AccessModifier = \"{EscapeString(primary.GetAccessModifierStringRaw())}\", ");
-                sb.Append($"Modifier = \"{EscapeString(string.Join(" ", primary.GetModifierStringRaw()))}\"");
-                if (evt.MetadataToken != 0)
-                    sb.Append($", Token = \"0x{evt.MetadataToken:X8}\"");
-                sb.Append(")]\n");
-            }
             return sb.ToString();
         }
 
@@ -250,11 +185,29 @@ namespace Il2CppInspector.Outputs
             });
         }
 
+        // get real type name without generics
+        private string GetRealTypeName(TypeInfo type) {
+            var name = type.Name;
+            // Remove backtick notation (e.g., `2)
+            name = Regex.Replace(name, "`[0-9]+", "");
+            // Remove generic parameter names in brackets (e.g., [K,V])
+            name = Regex.Replace(name, @"\[[^\]]+\]", "");
+            return name;
+        }
+
+        // get real path
+        private string GetRealPath(TypeInfo type) {
+            string namespaceAsPath = type.Namespace == Path.GetFileNameWithoutExtension(type.Assembly.ShortName) ? "" : type.Namespace;
+            string relPath = $"{namespaceAsPath}{(namespaceAsPath.Length > 0 ? "." : "")}{GetRealTypeName(type)}";
+            return Path.Combine(relPath.Split('.'));
+        }
+
         public void WriteFilesByClass(string outPath, bool flattenHierarchy) {
             usedAssemblyAttributes.Clear();
             Parallel.ForEach(model.Assemblies.SelectMany(x => x.DefinedTypes), type => {
-                string relPath = $"{type.Namespace}{(type.Namespace.Length > 0 ? "." : "")}{Regex.Replace(type.Name, "`[0-9]", "")}";
-                writeFile(Path.Combine(outPath, flattenHierarchy ? relPath : Path.Combine(relPath.Split('.')) + ".cs"), new[] {type});
+                string relPath = GetRealPath(type);
+                string outFile = Path.Combine(outPath, flattenHierarchy ? relPath : Path.Combine(relPath.Split('.')) + ".cs");
+                writeFile(outFile, new[] {type});
             });
         }
 
@@ -266,8 +219,9 @@ namespace Il2CppInspector.Outputs
             Parallel.ForEach(model.Assemblies.SelectMany(x => x.DefinedTypes),
                 () => new HashSet<Assembly>(),
                 (type, _, used) => {
-                    string relPath = Path.Combine($"{type.Namespace}{(type.Namespace.Length > 0 ? "." : "")}{Regex.Replace(type.Name, "`[0-9]", "")}".Split('.'));
-                    if (writeFile(Path.Combine(outPath, Path.GetFileNameWithoutExtension(type.Assembly.ShortName), $"{relPath}.cs"), new[] {type}, outputAssemblyAttributes: !separateAttributes))
+                    string relPath = GetRealPath(type);
+                    string outFile = Path.Combine(outPath, Path.GetFileNameWithoutExtension(type.Assembly.ShortName), $"{relPath}.cs");
+                    if (writeFile(outFile, new[] {type}, outputAssemblyAttributes: !separateAttributes))
                         used.Add(type.Assembly);
                     return used;
                 },
@@ -616,8 +570,12 @@ namespace Il2CppInspector.Outputs
             sb = new StringBuilder();
             var hasIndexer = false;
             foreach (var prop in type.DeclaredProperties) {
-                // Generate custom property attribute info
-                sb.Append(GenerateCustomPropertyAttributeInfo(prop, prefix + "\t"));
+
+                // Generate custom method attribute info for getter and setter
+                if (prop.GetMethod != null)
+                    sb.Append(GenerateCustomMethodAttributeInfo(prop.GetMethod, "Getter", prop.Name, prefix + "\t"));
+                if (prop.SetMethod != null)
+                    sb.Append(GenerateCustomMethodAttributeInfo(prop.SetMethod, "Setter", prop.Name, prefix + "\t"));
 
                 // Attributes
                 sb.Append(prop.CustomAttributes.OrderBy(a => a.AttributeType.Name)
@@ -679,8 +637,14 @@ namespace Il2CppInspector.Outputs
             // Events
             sb = new StringBuilder();
             foreach (var evt in type.DeclaredEvents) {
-                // Generate custom event attribute info
-                sb.Append(GenerateCustomEventAttributeInfo(evt, prefix + "\t"));
+
+                // Generate custom method attribute info for event methods
+                if (evt.AddMethod != null)
+                    sb.Append(GenerateCustomMethodAttributeInfo(evt.AddMethod, "EventAdd", evt.Name, prefix + "\t"));
+                if (evt.RemoveMethod != null)
+                    sb.Append(GenerateCustomMethodAttributeInfo(evt.RemoveMethod, "EventRemove", evt.Name, prefix + "\t"));
+                if (evt.RaiseMethod != null)
+                    sb.Append(GenerateCustomMethodAttributeInfo(evt.RaiseMethod, "EventInvoke", evt.Name, prefix + "\t"));
 
                 // Attributes
                 sb.Append(evt.CustomAttributes.OrderBy(a => a.AttributeType.Name)
@@ -843,8 +807,18 @@ namespace Il2CppInspector.Outputs
 
             // Enumeration
             if (type.IsEnum) {
-                sb.AppendJoin(",\n", type.GetEnumNames().Zip(type.GetEnumValues().OfType<object>(),
-                              (k, v) => new { k, v }).OrderBy(x => x.v).Select(x => $"{prefix}\t{x.k} = {x.v}"));
+                var enumFieldSb = new StringBuilder();
+                
+                // Generate CustomFieldAttribute for each enum field
+                foreach (var field in type.DeclaredFields.Where(f => f.IsLiteral && f.IsStatic)) {
+                    enumFieldSb.Append(GenerateCustomFieldAttributeInfo(field, prefix + "\t"));
+                }
+                
+                var enumValues = type.GetEnumNames().Zip(type.GetEnumValues().OfType<object>(),
+                              (k, v) => new { k, v }).OrderBy(x => x.v).Select(x => $"{prefix}\t{x.k} = {x.v}");
+                
+                sb.Append(enumFieldSb.ToString());
+                sb.AppendJoin(",\n", enumValues);
                 sb.Append("\n");
             }
 
@@ -863,8 +837,7 @@ namespace Il2CppInspector.Outputs
                 return writer;
 
             // Generate custom method attribute info
-            var methodType = method.CustomAttributes.Any(a => a.AttributeType.FullName == ExtAttribute) ? "Extension" : "Normal";
-            writer.Append(GenerateCustomMethodAttributeInfo(method, methodType, "", prefix + "\t"));
+            writer.Append(GenerateCustomMethodAttributeInfo(method, "Normal", "", prefix + "\t"));
 
             // Attributes
             writer.Append(method.CustomAttributes.Where(a => a.AttributeType.FullName != ExtAttribute && a.AttributeType.FullName != AsyncAttribute)

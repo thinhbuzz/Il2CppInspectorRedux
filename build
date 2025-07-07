@@ -1,0 +1,8 @@
+#!/bin/bash
+set -e
+dotnet restore ./Il2CppInspector.CLI/Il2CppInspector.CLI.csproj -r osx-arm64
+dotnet publish -c Release --no-self-contained --no-restore -o ./osx-arm64 -r osx-arm64 ./Il2CppInspector.CLI/Il2CppInspector.CLI.csproj
+# cd ~/Desktop/projects/pgtools/apks/0.367.2
+# rm -rf output
+# il2cpp
+# ls output/Code/holo-game/Niantic/Platform/NianticInventoryCache*

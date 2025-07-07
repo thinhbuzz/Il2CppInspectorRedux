@@ -161,8 +161,8 @@ namespace Il2CppInspector.Outputs
             customFieldAttribute.Fields.Add(new FieldDefUser("Offset", stringField, FieldAttributes.Public));
             customFieldAttribute.Fields.Add(new FieldDefUser("AccessModifier", stringField, FieldAttributes.Public));
             customFieldAttribute.Fields.Add(new FieldDefUser("Modifier", stringField, FieldAttributes.Public));
-            customFieldAttribute.Fields.Add(new FieldDefUser("Type", stringField, FieldAttributes.Public));
             customFieldAttribute.Fields.Add(new FieldDefUser("Name", stringField, FieldAttributes.Public));
+            customFieldAttribute.Fields.Add(new FieldDefUser("Type", stringField, FieldAttributes.Public));
             customFieldAttribute.AddDefaultConstructor(attributeCtorRef);
 
             addressAttribute = createAttribute("AddressAttribute");
