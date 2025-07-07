@@ -74,6 +74,21 @@ jobs:
       - name: Build & Publish
         run: dotnet publish -c Release --no-self-contained --no-restore -o ./${{ matrix.rid }} -r ${{ matrix.rid }} ./Il2CppInspector.CLI/Il2CppInspector.CLI.csproj
 
+      - name: Copy Windows scripts
+        if: matrix.rid == 'win-x64'
+        run: |
+          cp il2cpp.bat pogo.bat ./${{ matrix.rid }}/
+
+      - name: Copy Unix scripts
+        if: matrix.rid == 'linux-x64' || matrix.rid == 'linux-arm64' || matrix.rid == 'osx-x64' || matrix.rid == 'osx-arm64'
+        run: |
+          cp il2cpp ./${{ matrix.rid }}/
+          cp pogo ./${{ matrix.rid }}/
+
+      - name: Copy Builder scripts
+        run: |
+          cp bun-builder/index.ts bun-builder/bun.lock bun-builder/package.json ./${{ matrix.rid }}/
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
