@@ -195,9 +195,32 @@ namespace Il2CppInspector.Outputs
             return name;
         }
 
+        private string ExtractLastPart(string first, string second)
+        {
+            if (string.IsNullOrEmpty(first) || string.IsNullOrEmpty(second))
+            {
+                return second ?? string.Empty;
+            }
+            
+            // Split both strings by dots
+            string[] firstParts = first.Split('.');
+            int firstLength = firstParts.Length;
+            string[] secondParts = second.Split('.');
+            int secondLength = secondParts.Length;
+            string[] resultParts = new string[secondLength];
+            for (int i = 0; i < secondLength; i++) {
+                if (i >= firstLength || firstParts[i] != secondParts[i]) {
+                    resultParts = secondParts.Skip(i).ToArray();
+                    break;
+                }
+            }
+            return string.Join(".", resultParts);
+        }
+
         // get real path
         private string GetRealPath(TypeInfo type) {
-            string namespaceAsPath = type.Namespace == Path.GetFileNameWithoutExtension(type.Assembly.ShortName) ? "" : type.Namespace;
+            string assemblyName = Path.GetFileNameWithoutExtension(type.Assembly.ShortName);
+            string namespaceAsPath = ExtractLastPart(assemblyName, type.Namespace);
             string relPath = $"{namespaceAsPath}{(namespaceAsPath.Length > 0 ? "." : "")}{GetRealTypeName(type)}";
             return Path.Combine(relPath.Split('.'));
         }
