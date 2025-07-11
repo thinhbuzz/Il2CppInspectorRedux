@@ -195,6 +195,86 @@ namespace Il2CppInspector.Outputs
             return name;
         }
 
+        // Find the default namespace for an assembly using similar logic to DefaultNamespaceFinder
+        private string FindDefaultNamespace(Reflection.Assembly assembly)
+        {
+            var namespaces = assembly.DefinedTypes
+                .Select(t => t.Namespace)
+                .Where(ns => !string.IsNullOrEmpty(ns) && ns != "XamlGeneratedNamespace")
+                .Distinct()
+                .ToArray();
+
+            if (!namespaces.Any())
+                return string.Empty;
+
+            // Get assembly name without extension
+            var assemblyName = Path.GetFileNameWithoutExtension(assembly.ShortName);
+
+            // Group namespaces by first part
+            var namespaceGroups = namespaces
+                .GroupBy(ns => GetFirstNamespacePart(ns))
+                .Select(g => new {
+                    FirstPart = g.Key,
+                    CommonPrefix = GetCommonNamespacePrefix(g.ToArray()),
+                    Namespaces = g.ToArray()
+                })
+                .ToList();
+
+            if (namespaceGroups.Count == 0)
+                return string.Empty;
+
+            if (namespaceGroups.Count == 1)
+                return namespaceGroups[0].CommonPrefix;
+
+            // Try to find a namespace group that matches or starts with the assembly name
+            var bestMatch = namespaceGroups.FirstOrDefault(g => 
+                assemblyName.Equals(g.CommonPrefix, StringComparison.OrdinalIgnoreCase) || 
+                g.CommonPrefix.StartsWith(assemblyName + ".", StringComparison.OrdinalIgnoreCase));
+
+            return bestMatch?.CommonPrefix ?? string.Empty;
+        }
+
+        private string GetFirstNamespacePart(string ns)
+        {
+            int dotIndex = ns.IndexOf('.');
+            return dotIndex < 0 ? ns : ns.Substring(0, dotIndex);
+        }
+
+        private string GetCommonNamespacePrefix(string[] namespaces)
+        {
+            if (namespaces.Length == 0)
+                return string.Empty;
+
+            if (namespaces.Length == 1)
+                return namespaces[0];
+
+            string commonPrefix = namespaces[0];
+            for (int i = 1; i < namespaces.Length; i++)
+            {
+                commonPrefix = GetCommonPrefix(commonPrefix, namespaces[i]);
+            }
+
+            return commonPrefix;
+        }
+
+        private string GetCommonPrefix(string a, string b)
+        {
+            var partsA = a.Split('.');
+            var partsB = b.Split('.');
+            var commonParts = new List<string>();
+
+            int minLength = Math.Min(partsA.Length, partsB.Length);
+            for (int i = 0; i < minLength; i++)
+            {
+                if (string.Equals(partsA[i], partsB[i], StringComparison.Ordinal))
+                    commonParts.Add(partsA[i]);
+                else
+                    break;
+            }
+
+            return string.Join(".", commonParts);
+        }
+
         private string ExtractLastPart(string first, string second)
         {
             if (string.IsNullOrEmpty(first) || string.IsNullOrEmpty(second))
@@ -217,10 +297,26 @@ namespace Il2CppInspector.Outputs
             return string.Join(".", resultParts);
         }
 
-        // get real path
+        // get real path using default namespace finder
         private string GetRealPath(TypeInfo type) {
-            string assemblyName = Path.GetFileNameWithoutExtension(type.Assembly.ShortName);
-            string namespaceAsPath = ExtractLastPart(assemblyName, type.Namespace);
+            string defaultNamespace = FindDefaultNamespace(type.Assembly);
+            string namespaceAsPath;
+            
+            if (!string.IsNullOrEmpty(defaultNamespace) && type.Namespace.StartsWith(defaultNamespace))
+            {
+                // Remove the default namespace prefix to get the relative namespace
+                if (type.Namespace.Length > defaultNamespace.Length && type.Namespace[defaultNamespace.Length] == '.')
+                    namespaceAsPath = type.Namespace.Substring(defaultNamespace.Length + 1);
+                else if (type.Namespace == defaultNamespace)
+                    namespaceAsPath = string.Empty;
+                else
+                    namespaceAsPath = type.Namespace;
+            }
+            else
+            {
+                namespaceAsPath = type.Namespace;
+            }
+            
             string relPath = $"{namespaceAsPath}{(namespaceAsPath.Length > 0 ? "." : "")}{GetRealTypeName(type)}";
             return Path.Combine(relPath.Split('.'));
         }
@@ -357,8 +453,8 @@ namespace Il2CppInspector.Outputs
                 () => new Dictionary<TypeInfo, StringBuilder>(),
                 (type, _, dict) => {
                     // Skip namespace and any children if requested
-                    if (ExcludedNamespaces?.Any(x => x == type.Namespace || type.Namespace.StartsWith(x + ".")) ?? false)
-                        return dict;
+                    // if (ExcludedNamespaces?.Any(x => x == type.Namespace || type.Namespace.StartsWith(x + ".")) ?? false)
+                    //     return dict;
 
                     // Don't output global::Locale if desired
                     if (MustCompile
@@ -452,7 +548,7 @@ namespace Il2CppInspector.Outputs
             }
 
             // Sanitize leafname (might be class name with invalid characters)
-            var leafname = string.Join("_", Path.GetFileName(outFile).Split(Path.GetInvalidFileNameChars()));
+            var leafname = string.Join("-", Path.GetFileName(outFile).Split(Path.GetInvalidFileNameChars()));
 
             outFile = Path.Combine(dir, leafname);
 
