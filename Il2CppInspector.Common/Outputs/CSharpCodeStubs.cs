@@ -275,28 +275,6 @@ namespace Il2CppInspector.Outputs
             return string.Join(".", commonParts);
         }
 
-        private string ExtractLastPart(string first, string second)
-        {
-            if (string.IsNullOrEmpty(first) || string.IsNullOrEmpty(second))
-            {
-                return second ?? string.Empty;
-            }
-            
-            // Split both strings by dots
-            string[] firstParts = first.Split('.');
-            int firstLength = firstParts.Length;
-            string[] secondParts = second.Split('.');
-            int secondLength = secondParts.Length;
-            string[] resultParts = new string[secondLength];
-            for (int i = 0; i < secondLength; i++) {
-                if (i >= firstLength || firstParts[i] != secondParts[i]) {
-                    resultParts = secondParts.Skip(i).ToArray();
-                    break;
-                }
-            }
-            return string.Join(".", resultParts);
-        }
-
         // get real path using default namespace finder
         private string GetRealPath(TypeInfo type) {
             string defaultNamespace = FindDefaultNamespace(type.Assembly);
