@@ -330,16 +330,40 @@ namespace Il2CppInspector.Outputs
             });
         }
 
+        private string AppendNumberToDuplicatePath(HashSet<string> paths, string path) {
+            if (!paths.Contains(path))
+            {
+                paths.Add(path);
+                return path;
+            }
+            
+            int i = 2;
+            string numberedPath;
+            do {
+                numberedPath = path + $".{i}";
+                i++;
+            } while (paths.Contains(numberedPath));
+            
+            paths.Add(numberedPath);
+            return numberedPath;
+        }
+
         public HashSet<Assembly> WriteFilesByClassTree(string outPath, bool separateAttributes) {
             usedAssemblyAttributes.Clear();
             var usedAssemblies = new HashSet<Assembly>();
+            var usedPaths = new HashSet<string>();
+            var usedPathsLock = new object();
 
             // Each thread tracks its own list of used assemblies and they are merged as each thread completes
             Parallel.ForEach(model.Assemblies.SelectMany(x => x.DefinedTypes),
                 () => new HashSet<Assembly>(),
                 (type, _, used) => {
                     string relPath = GetRealPath(type);
-                    string outFile = Path.Combine(outPath, Path.GetFileNameWithoutExtension(type.Assembly.ShortName), $"{relPath}.cs");
+                    string uniqueRelPath;
+                    lock (usedPathsLock) {
+                        uniqueRelPath = AppendNumberToDuplicatePath(usedPaths, relPath);
+                    }
+                    string outFile = Path.Combine(outPath, Path.GetFileNameWithoutExtension(type.Assembly.ShortName), $"{uniqueRelPath}.cs");
                     if (writeFile(outFile, new[] {type}, outputAssemblyAttributes: !separateAttributes))
                         used.Add(type.Assembly);
                     return used;
