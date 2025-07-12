@@ -99,8 +99,8 @@ namespace Il2CppInspector.Outputs
             sb.Append($"Offset = \"0x{field.Offset:X2}\", ");
             sb.Append($"AccessModifier = \"{EscapeString(field.GetAccessModifierStringRaw())}\", ");
             sb.Append($"Modifier = \"{EscapeString(string.Join(" ", field.GetModifierStringRaw()))}\", ");
-            sb.Append($"Name = \"{EscapeString(field.Name)}\"");
-            sb.Append($"Type = \"{EscapeString(GetFullNameWithGenerics(field.FieldType))}\", ");
+            sb.Append($"Name = \"{EscapeString(field.Name)}\", ");
+            sb.Append($"Type = \"{EscapeString(GetFullNameWithGenerics(field.FieldType))}\"");
             sb.Append(")]\n");
             return sb.ToString();
         }
