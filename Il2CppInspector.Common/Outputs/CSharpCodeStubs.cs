@@ -54,7 +54,8 @@ namespace Il2CppInspector.Outputs
                 return "";
 
             var sb = new StringBuilder();
-            sb.Append($"{prefix}[CustomClass(NestedLevel = \"{type.FullName.Count(c => c == '+')}\", ");
+            sb.Append($"{prefix}[CustomClass(Namespace = \"{type.Namespace}\", ");
+            sb.Append($"NestedLevel = \"{type.FullName.Count(c => c == '+')}\", ");
             sb.Append($"Name = \"{EscapeString(type.Name)}\", ");
             sb.Append($"AccessModifier = \"{EscapeString(type.GetAccessModifierStringRaw())}\", ");
             sb.Append($"Modifier = \"{EscapeString(string.Join(" ", type.GetModifierStringRaw()))}\", ");

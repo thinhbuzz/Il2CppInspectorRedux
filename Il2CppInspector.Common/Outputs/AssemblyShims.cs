@@ -134,6 +134,7 @@ namespace Il2CppInspector.Outputs
             // TODO: New format with numeric values where applicable
 
             customClassAttribute = createAttribute("CustomClassAttribute");
+            customClassAttribute.Fields.Add(new FieldDefUser("Namespace", stringField, FieldAttributes.Public));
             customClassAttribute.Fields.Add(new FieldDefUser("NestedLevel", stringField, FieldAttributes.Public));
             customClassAttribute.Fields.Add(new FieldDefUser("Name", stringField, FieldAttributes.Public));
             customClassAttribute.Fields.Add(new FieldDefUser("AccessModifier", stringField, FieldAttributes.Public));
@@ -288,6 +289,7 @@ namespace Il2CppInspector.Outputs
                 mType.AddAttribute(module, tokenAttribute, ("Token", $"0x{type.MetadataToken:X8}"));
 
             var args = new List<(string, object)> {
+                ("Namespace", type.Namespace),
                 ("NestedLevel", type.FullName.Count(c => c == '+').ToString()),
                 ("Name", type.Name),
                 ("AccessModifier", type.GetAccessModifierStringRaw()),
