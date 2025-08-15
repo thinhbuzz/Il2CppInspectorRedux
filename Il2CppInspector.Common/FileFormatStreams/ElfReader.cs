@@ -5,6 +5,7 @@
     All rights reserved.
 */
 
+using Spectre.Console;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -160,7 +161,7 @@ namespace Il2CppInspector
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Got exception {ex} while parsing SHT - reverting to PHT");
+                AnsiConsole.WriteLine($"Got exception {ex} while parsing SHT - reverting to PHT");
                 preferPHT = true;
                 SHT = [];
             }
@@ -170,12 +171,12 @@ namespace Il2CppInspector
             // These can happen as a result of conversions from other formats to ELF,
             // or if the SHT has been deliberately stripped
             if (!SHT.Any()) {
-                Console.WriteLine("ELF binary has no SHT - reverting to PHT");
+                AnsiConsole.WriteLine("ELF binary has no SHT - reverting to PHT");
                 preferPHT = true;
             }
             
             else if (SHT.All(s => conv.ULong(s.sh_addr) == 0ul)) {
-                Console.WriteLine("ELF binary SHT is all-zero - reverting to PHT");
+                AnsiConsole.WriteLine("ELF binary SHT is all-zero - reverting to PHT");
                 preferPHT = true;
             }
 
@@ -192,7 +193,7 @@ namespace Il2CppInspector
 
                     // If the first file offset of the first PHT is zero, assume a dumped image
                     if (PHT.Any(t => conv.ULong(t.p_vaddr) == 0ul)) {
-                        Console.WriteLine("ELF binary appears to be a dumped memory image");
+                        AnsiConsole.WriteLine("ELF binary appears to be a dumped memory image");
                         isMemoryImage = true;
                     }
                     preferPHT = true;
@@ -202,7 +203,7 @@ namespace Il2CppInspector
                 else {
                     var shtOverlap = shtShouldBeOrdered.Aggregate((x, y) => x <= y? y : ulong.MaxValue) == ulong.MaxValue;
                     if (shtOverlap) {
-                        Console.WriteLine("ELF binary SHT contains invalid ranges - reverting to PHT");
+                        AnsiConsole.WriteLine("ELF binary SHT contains invalid ranges - reverting to PHT");
                         preferPHT = true;
                     }
                 }
@@ -223,7 +224,20 @@ namespace Il2CppInspector
             
             // Get dynamic table if it exists (must be done after rebasing)
             if (GetProgramHeader(Elf.PT_DYNAMIC) is TPHdr PT_DYNAMIC)
-                DynamicTable = ReadArray<elf_dynamic<TWord>>(conv.Long(PT_DYNAMIC.p_offset), (int) (conv.Long(PT_DYNAMIC.p_filesz) / Sizeof(typeof(elf_dynamic<TWord>))));
+            {
+                // Important: do not use p_offset here!
+                // Only load sections should be loaded, which should also include the memory region that contains the dynamic section.
+                // This just provides the virtual address of the section.
+                // Some binaries may use the offset here to point to a fake version of the dynamic section,
+                // making relocation resolution and subsequent analysis fail.
+                // Reference for Android: 
+                // phdr_table_get_dynamic_section, https://cs.android.com/android/platform/superproject/main/+/main:bionic/linker/linker_phdr.cpp
+
+                var dynamicAddr = conv.ULong(PT_DYNAMIC.p_vaddr);
+                var dynamicSize = (int)(conv.Long(PT_DYNAMIC.p_filesz) / Sizeof(typeof(elf_dynamic<TWord>)));
+
+                DynamicTable = ReadMappedArray<elf_dynamic<TWord>>(dynamicAddr, dynamicSize);
+            }
 
             // Get offset of code section
             var codeSegment = PHT.First(x => ((Elf) x.p_flags & Elf.PF_X) == Elf.PF_X);
@@ -254,21 +268,6 @@ namespace Il2CppInspector
 
             StatusUpdate("Finding relocations");
 
-            // Two types: add value from offset in image, and add value from specified addend
-            foreach (var relSection in GetSections(Elf.SHT_REL)) {
-                reverseMapExclusions.Add(((uint) conv.Int(relSection.sh_offset), (uint) (conv.Int(relSection.sh_offset) + conv.Int(relSection.sh_size) - 1)));
-                rels.UnionWith(
-                    from rel in ReadArray<elf_rel<TWord>>(conv.Long(relSection.sh_offset), conv.Int(conv.Div(relSection.sh_size, relSection.sh_entsize)))
-                    select new ElfReloc(rel, SHT[relSection.sh_link].sh_offset));
-            }
-
-            foreach (var relaSection in GetSections(Elf.SHT_RELA)) {
-                reverseMapExclusions.Add(((uint) conv.Int(relaSection.sh_offset), (uint) (conv.Int(relaSection.sh_offset) + conv.Int(relaSection.sh_size) - 1)));
-                rels.UnionWith(
-                    from rela in ReadArray<elf_rela<TWord>>(conv.Long(relaSection.sh_offset), conv.Int(conv.Div(relaSection.sh_size, relaSection.sh_entsize)))
-                    select new ElfReloc(rela, SHT[relaSection.sh_link].sh_offset));
-            }
-
             // Relocations in dynamic section
             if (GetDynamicEntry(Elf.DT_REL) is elf_dynamic<TWord> dt_rel) {
                 var dt_rel_count = conv.Int(conv.Div(GetDynamicEntry(Elf.DT_RELSZ).d_un, GetDynamicEntry(Elf.DT_RELENT).d_un));
@@ -291,7 +290,7 @@ namespace Il2CppInspector
             }
 
             // Process relocations
-            var relsz = Sizeof(typeof(TSym));
+            var relsz = (uint)Sizeof(typeof(TSym));
 
             var currentRel = 0;
             var totalRel = rels.Count();
@@ -301,7 +300,26 @@ namespace Il2CppInspector
                 if (currentRel % 1000 == 0)
                     StatusUpdate($"Processing relocations ({currentRel * 100 / totalRel:F0}%)");
 
-                var symValue = ReadObject<TSym>(conv.Long(rel.SymbolTable) + conv.Long(rel.SymbolIndex) * relsz).st_value; // S
+                TWord symValue;
+
+                try
+                {
+                    // man this really needs a full overhaul
+                    symValue = ReadMappedObject<TSym>(conv.ULong(rel.SymbolTable) + conv.ULong(rel.SymbolIndex) * relsz)
+                        .st_value; // S
+                }
+                catch (InvalidOperationException)
+                {
+                    try
+                    {
+                        symValue = ReadObject<TSym>(conv.Long(rel.SymbolTable) + conv.Long(rel.SymbolIndex) * relsz)
+                            .st_value; // S
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        continue;
+                    }
+                }
 
                 // Ignore relocations into memory addresses not mapped from the image
                 try {
@@ -344,7 +362,7 @@ namespace Il2CppInspector
                     WriteWord(result.newValue);
                 }
             }
-            Console.WriteLine($"Processed {rels.Count} relocations");
+            AnsiConsole.WriteLine($"Processed {rels.Count} relocations");
 
             // Build symbol and export tables
             processSymbols();
@@ -388,7 +406,8 @@ namespace Il2CppInspector
             WriteArray(conv.Long(PT_DYNAMIC.p_offset), dt);
         }
 
-        private void processSymbols() {
+        private void processSymbols()
+        {
             StatusUpdate("Processing symbols");
 
             // Three possible symbol tables in ELF files
@@ -436,7 +455,15 @@ namespace Il2CppInspector
             symbolTable.Clear();
             var exportTable = new Dictionary<string, Export>();
 
-            foreach (var pTab in pTables) {
+            var alreadyProcessed = new List<(TWord offset, TWord count)>();
+
+            foreach (var pTab in pTables)
+            {
+                if (alreadyProcessed.Any(x =>
+                        conv.ULong(x.offset) == conv.ULong(pTab.offset)))
+                    continue;
+
+                alreadyProcessed.Add((pTab.offset, pTab.count));
                 var symbol_table = ReadArray<TSym>(conv.Long(pTab.offset), conv.Int(pTab.count));
 
                 foreach (var symbol in symbol_table)
@@ -463,7 +490,7 @@ namespace Il2CppInspector
                     var symbolItem = new Symbol {Name = name, Type = type, VirtualAddress = conv.ULong(symbol.st_value) };
                     symbolTable.TryAdd(name, symbolItem);
                     if (symbol.st_shndx != (ushort) Elf.SHN_UNDEF)
-                        exportTable.TryAdd(name, new Export {Name = symbolItem.DemangledName, VirtualAddress = conv.ULong(symbol.st_value)});
+                        exportTable.TryAdd(name, new Export {Name = symbolItem.Name, VirtualAddress = conv.ULong(symbol.st_value)});
                 }
             }
 

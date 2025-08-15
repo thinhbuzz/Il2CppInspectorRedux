@@ -6,12 +6,13 @@
 */
 
 using Il2CppInspector.Next;
+using Il2CppInspector.Next.BinaryMetadata;
+using Il2CppInspector.Next.Metadata;
+using Spectre.Console;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text.RegularExpressions;
-using Il2CppInspector.Next.BinaryMetadata;
-using Il2CppInspector.Next.Metadata;
 using VersionedSerialization;
 
 namespace Il2CppInspector
@@ -191,7 +192,7 @@ namespace Il2CppInspector
             var symbols = Image.GetSymbolTable();
 
             if (symbols.Any()) {
-                Console.WriteLine($"Symbol table(s) found with {symbols.Count} entries");
+                AnsiConsole.WriteLine($"Symbol table(s) found with {symbols.Count} entries");
 
                 symbols.TryGetValue("g_CodeRegistration", out var code);
                 symbols.TryGetValue("g_MetadataRegistration", out var metadata);
@@ -202,13 +203,13 @@ namespace Il2CppInspector
                     symbols.TryGetValue("_g_MetadataRegistration", out metadata);
 
                 if (code != null && metadata != null) {
-                    Console.WriteLine("Required structures acquired from symbol lookup");
+                    AnsiConsole.WriteLine("Required structures acquired from symbol lookup");
                     return (code.VirtualAddress, metadata.VirtualAddress);
                 } else {
-                    Console.WriteLine("No matches in symbol table");
+                    AnsiConsole.WriteLine("No matches in symbol table");
                 }
             } else if (symbols != null) {
-                Console.WriteLine("No symbol table present in binary file");
+                AnsiConsole.WriteLine("No symbol table present in binary file");
             } else {
                 Console.WriteLine("Symbol table search not implemented for this binary format");
             }
@@ -227,12 +228,12 @@ namespace Il2CppInspector
                 var (code, metadata) = ConsiderCode(Image, loc);
                 if (code != 0) {
                     RegistrationFunctionPointer = loc + Image.GlobalOffset;
-                    Console.WriteLine("Required structures acquired from code heuristics. Initialization function: 0x{0:X16}", RegistrationFunctionPointer);
+                    AnsiConsole.WriteLine("Required structures acquired from code heuristics. Initialization function: 0x{0:X16}", RegistrationFunctionPointer);
                     return (code, metadata);
                 }
             }
 
-            Console.WriteLine("No matches via code heuristics");
+            AnsiConsole.WriteLine("No matches via code heuristics");
             return null;
         }
 
@@ -244,11 +245,11 @@ namespace Il2CppInspector
 
             var (codePtr, metadataPtr) = ImageScan(Metadata);
             if (codePtr == 0) {
-                Console.WriteLine("No matches via data heuristics");
+                AnsiConsole.WriteLine("No matches via data heuristics");
                 return null;
             }
 
-            Console.WriteLine("Required structures acquired from data heuristics");
+            AnsiConsole.WriteLine("Required structures acquired from data heuristics");
             return (codePtr, metadataPtr);
         }
 
@@ -274,8 +275,8 @@ namespace Il2CppInspector
 
             var pointerSize = Image.Bits == 32 ? 4u : 8u;
 
-            Console.WriteLine("CodeRegistration struct found at 0x{0:X16} (file offset 0x{1:X8})", Image.Bits == 32 ? codeRegistration & 0xffff_ffff : codeRegistration, Image.MapVATR(codeRegistration));
-            Console.WriteLine("MetadataRegistration struct found at 0x{0:X16} (file offset 0x{1:X8})", Image.Bits == 32 ? metadataRegistration & 0xffff_ffff : metadataRegistration, Image.MapVATR(metadataRegistration));
+            AnsiConsole.WriteLine("CodeRegistration struct found at 0x{0:X16} (file offset 0x{1:X8})", Image.Bits == 32 ? codeRegistration & 0xffff_ffff : codeRegistration, Image.MapVATR(codeRegistration));
+            AnsiConsole.WriteLine("MetadataRegistration struct found at 0x{0:X16} (file offset 0x{1:X8})", Image.Bits == 32 ? metadataRegistration & 0xffff_ffff : metadataRegistration, Image.MapVATR(metadataRegistration));
 
             // Root structures from which we find everything else
             CodeRegistration = Image.ReadMappedVersionedObject<Il2CppCodeRegistration>(codeRegistration);
@@ -337,7 +338,15 @@ namespace Il2CppInspector
                     }
 
                     // Read method invoker pointer indices - one per method
-                    MethodInvokerIndices.Add(module, Image.ReadMappedPrimitiveArray<int>(module.InvokerIndices, (int) module.MethodPointerCount));
+                    try
+                    {
+                        MethodInvokerIndices.Add(module,
+                            Image.ReadMappedPrimitiveArray<int>(module.InvokerIndices, (int)module.MethodPointerCount));
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        MethodInvokerIndices.Add(module, [..new int[(int)module.MethodPointerCount]]);
+                    }
                 }
             }
 
@@ -398,12 +407,21 @@ namespace Il2CppInspector
                     var type = TypeReferences[i];
                     if (type.Type.IsTypeDefinitionEnum())
                     {
-                        type.Data.Value = (type.Data.Type.PointerValue - baseDefinitionPtr) / definitionSize;
+                        if (type.Data.Type.PointerValue >= baseDefinitionPtr)
+                            type.Data.Value = (type.Data.Type.PointerValue - baseDefinitionPtr) / definitionSize;
+
+                        Debug.Assert(Metadata!.Types.Length > type.Data.KlassIndex);
                     }
                     else if (type.Type.IsGenericParameterEnum())
                     {
-                        type.Data.Value = (type.Data.Type.PointerValue - baseGenericPtr) / genericParameterSize;
+                        if (type.Data.Type.PointerValue >= baseGenericPtr)
+                            type.Data.Value = (type.Data.Type.PointerValue - baseGenericPtr) / genericParameterSize;
+
+                        Debug.Assert(Metadata!.GenericParameters.Length > type.Data.KlassIndex);
                     }
+
+                    Debug.Assert((long)type.Data.Value >= 0);
+
                     builder.Add(type);
                 }
                 TypeReferences = builder.MoveToImmutable();

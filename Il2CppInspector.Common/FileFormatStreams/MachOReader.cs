@@ -4,12 +4,13 @@
     All rights reserved.
 */
 
+using NoisyCowStudios.Bin2Object;
+using Spectre.Console;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using NoisyCowStudios.Bin2Object;
 
 namespace Il2CppInspector
 {
@@ -172,15 +173,21 @@ namespace Il2CppInspector
                         if (encryptionInfo.CryptID != 0)
                             throw new NotImplementedException("This Mach-O executable is encrypted with FairPlay DRM and cannot be processed. Please provide a decrypted version of the executable.");
                         break;
+
+                    case MachO.LC_DYLD_CHAINED_FIXUPS:
+                        var chainedFixupsInfo = ReadObject<MachOLinkEditDataCommand>();
+                        ApplyChainedFixups(chainedFixupsInfo);
+                        break;
                 }
 
                 // There might be other data after the load command so always use the specified total size to step forwards
                 Position = startPos + loadCommand.Size;
             }
 
+            // Note: Some binaries do not have __mod_init_func, but instead just __init_offset with offsets to the init functions. This check is disabled.
             // Must find __mod_init_func
-            if (funcTab == null)
-                return false;
+            //if (funcTab == null)
+            //    return false;
 
             // Process relocations
             foreach (var section in machoSections) {
@@ -188,7 +195,7 @@ namespace Il2CppInspector
 
                 // TODO: Implement Mach-O relocations
                 if (rels.Any()) {
-                    Console.WriteLine("Mach-O file contains relocations (feature not yet implemented)");
+                    AnsiConsole.WriteLine("Mach-O file contains relocations (feature not yet implemented)");
                     break;
                 }
             }
@@ -282,7 +289,7 @@ namespace Il2CppInspector
                     : SymbolType.Unknown;
 
                 if (type == SymbolType.Unknown) {
-                    Console.WriteLine($"Unknown symbol type: {((int) ntype):x2}   {value:x16}   " + CxxDemangler.CxxDemangler.Demangle(name));
+                    AnsiConsole.WriteLine($"Unknown symbol type: {((int) ntype):x2}   {value:x16}   {name}");
                 }
 
                 // Ignore duplicates
@@ -290,7 +297,82 @@ namespace Il2CppInspector
             }
         }
 
-        public override uint[] GetFunctionTable() => ReadArray<TWord>(funcTab.ImageOffset, conv.Int(funcTab.Size) / (Bits / 8)).Select(x => MapVATR(conv.ULong(x)) & 0xffff_fffe).ToArray();
+        private void ApplyChainedFixups(in MachOLinkEditDataCommand info)
+        {
+            var chainedFixupsHeader = ReadVersionedObject<MachODyldChainedFixupsHeader>(info.Offset);
+            if (chainedFixupsHeader.FixupsVersion != 0)
+            {
+                AnsiConsole.WriteLine($"Unsupported chained fixups version: {chainedFixupsHeader.FixupsVersion}");
+                return;
+            }
+
+            if (chainedFixupsHeader.ImportsFormat != 1 /* DYLD_CHAINED_IMPORT */)
+            {
+                AnsiConsole.WriteLine($"Unsupported chained fixups import format: {chainedFixupsHeader.ImportsFormat}");
+                return;
+            }
+
+            //var importsBase = info.Offset + chainedFixupsHeader.ImportsOffset;
+            //var imports = ReadPrimitiveArray<uint>(importsBase,
+            //    chainedFixupsHeader.ImportsCount);
+
+            //var symbolsBase = info.Offset + chainedFixupsHeader.SymbolsOffset; // todo: apparently this supports zlib
+
+            var startsBase = info.Offset + chainedFixupsHeader.StartsOffset;
+            var segmentCount = ReadPrimitive<uint>(startsBase);
+            var segmentStartOffsets = ReadPrimitiveArray<uint>(startsBase + 4, segmentCount);
+
+            foreach (var startOffset in segmentStartOffsets)
+            {
+                if (startOffset == 0)
+                    continue;
+
+                var startsInfo = ReadVersionedObject<MachODyldChainedStartsInSegment>(startsBase + startOffset);
+                if (startsInfo.SegmentOffset == 0)
+                    continue;
+
+                var pointerFormat = (MachODyldChainedPtr)startsInfo.PointerFormat;
+
+                var pages = ReadPrimitiveArray<ushort>(
+                    startsBase + startOffset + MachODyldChainedStartsInSegment.Size(), startsInfo.PageCount);
+
+                for (var i = 0; i < pages.Length; i++)
+                {
+                    var page = pages[i];
+                    if (page == MachODyldChainedStartsInSegment.DYLD_CHAINED_PTR_START_NONE)
+                        continue;
+
+                    var chainOffset = startsInfo.SegmentOffset + (ulong)(i * startsInfo.PageSize) + page;
+
+                    while (true)
+                    {
+                        var currentEntry = ReadVersionedObject<MachODyldChainedPtr64Rebase>((long)chainOffset);
+
+                        var fixedValue = 0ul;
+
+                        if (!currentEntry.Bind) // todo: bind
+                        {
+                            fixedValue = pointerFormat switch
+                            {
+                                MachODyldChainedPtr.DYLD_CHAINED_PTR_64
+                                    or MachODyldChainedPtr.DYLD_CHAINED_PTR_64_OFFSET 
+                                    => currentEntry.High8 << 56 | currentEntry.Target,
+                                _ => fixedValue
+                            };
+
+                            Write((long)chainOffset, fixedValue);
+                        }
+
+                        if (currentEntry.Next == 0)
+                            break;
+
+                        chainOffset += currentEntry.Next * 4;
+                    }
+                }
+            }
+        }
+
+        public override uint[] GetFunctionTable() => funcTab == null ? [] : ReadArray<TWord>(funcTab.ImageOffset, conv.Int(funcTab.Size) / (Bits / 8)).Select(x => MapVATR(conv.ULong(x)) & 0xffff_fffe).ToArray();
 
         public override Dictionary<string, Symbol> GetSymbolTable() => symbolTable;
 
