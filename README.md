@@ -28,6 +28,17 @@ This is a continuation of [Il2CppInspector, by djkaty](https://github.com/djkaty
     - Addition of custom fake string segment to show string literal contents in decompiler
     - A fake xref between MethodInfo instances and their corresponding method to quickly get the correct function
 * Binary Ninja script output, with all of the IDA-exclusive features
+* New cross-platform capable CLI and GUIs with dark mode support, providing the same output formats.
+
+> [!NOTE]  
+> As not all of the old UI features are implemented in the new UIs yet,
+> the old ones are still built by GitHub Actions and available in the releases with the `Old` suffix.
+
+> [!IMPORTANT]  
+> The below README is still largely based on the original Il2CppInspector documentation, 
+> and may not reflect all of the changes/differences in Il2CppInspectorRedux. 
+> Notably, it still features the old UIs and not the new Redux ones,  
+> among others that have been removed in Redux.
 
 ### Main features
 
