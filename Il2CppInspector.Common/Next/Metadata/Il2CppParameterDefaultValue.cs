@@ -1,7 +1,6 @@
 ﻿namespace Il2CppInspector.Next.Metadata;
 
 using ParameterIndex = int;
-using TypeIndex = int;
 using DefaultValueDataIndex = int;
 using VersionedSerialization.Attributes;
 

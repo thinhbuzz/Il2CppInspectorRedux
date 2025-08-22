@@ -3,7 +3,6 @@ using VersionedSerialization.Attributes;
 
 namespace Il2CppInspector.Next.Metadata;
 
-using GenericContainerIndex = int;
 using StringIndex = int;
 using GenericParameterConstraintIndex = short;
 

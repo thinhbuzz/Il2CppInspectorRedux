@@ -4,10 +4,7 @@ using VersionedSerialization.Attributes;
 namespace Il2CppInspector.Next.Metadata;
 
 using StringIndex = int;
-using TypeDefinitionIndex = int;
-using TypeIndex = int;
 using ParameterIndex = int;
-using GenericContainerIndex = int;
 
 [VersionedStruct]
 public partial record struct Il2CppMethodDefinition

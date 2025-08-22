@@ -3,8 +3,9 @@
 namespace Il2CppInspector.Next.Metadata;
 
 [VersionedStruct]
-public partial record struct Il2CppInterfaceOffsetPair
+public partial record struct Il2CppSectionMetadata
 {
-    public TypeIndex InterfaceTypeIndex { get; private set; }
     public int Offset { get; private set; }
+    public int SectionSize { get; private set; }
+    public int Count { get; private set; }
 }

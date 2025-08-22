@@ -2,7 +2,6 @@
 
 using VersionedSerialization.Attributes;
 using StringIndex = int;
-using TypeIndex = int;
 
 [VersionedStruct]
 public partial record struct Il2CppFieldDefinition

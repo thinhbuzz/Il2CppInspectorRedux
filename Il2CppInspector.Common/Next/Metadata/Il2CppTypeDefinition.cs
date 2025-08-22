@@ -5,8 +5,6 @@ using VersionedSerialization.Attributes;
 namespace Il2CppInspector.Next.Metadata;
 
 using StringIndex = int;
-using TypeIndex = int;
-using GenericContainerIndex = int;
 using FieldIndex = int;
 using MethodIndex = int;
 using EventIndex = int;
@@ -18,7 +16,7 @@ using VTableIndex = int;
 [VersionedStruct]
 public partial record struct Il2CppTypeDefinition
 {
-    public const TypeIndex InvalidTypeIndex = -1;
+    public static readonly TypeIndex InvalidTypeIndex = -1;
 
     public StringIndex NameIndex { get; private set; }
     public StringIndex NamespaceIndex { get; private set; }

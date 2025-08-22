@@ -85,7 +85,7 @@ namespace Il2CppInspector
                 return (0ul, null);
 
             // Get pointer in binary to default value
-            var pValue = Metadata.Header.FieldAndParameterDefaultValueDataOffset + dataIndex;
+            var pValue = Metadata.FieldAndParameterDefaultValueDataOffset + dataIndex;
             var typeRef = TypeReferences[typeIndex];
 
             // Default value is null
