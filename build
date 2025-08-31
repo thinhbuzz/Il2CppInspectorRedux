@@ -7,7 +7,7 @@ cp il2cpp pogo ./osx-arm64/
 mkdir -p ./osx-arm64/bun-builder
 cp bun-builder/index.ts bun-builder/bun.lock bun-builder/package.json ./osx-arm64/bun-builder/
 chmod +x ./osx-arm64/il2cpp ./osx-arm64/pogo
-echo "\nAdd to path: $PWD/osx-arm64"
+echo -e "\nAdd to path: $PWD/osx-arm64"
 # cd ~/Desktop/projects/pgtools/apks/0.367.2
 # rm -rf output
 # il2cpp
