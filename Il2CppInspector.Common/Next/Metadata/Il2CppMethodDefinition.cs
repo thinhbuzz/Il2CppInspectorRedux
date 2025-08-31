@@ -4,10 +4,7 @@ using VersionedSerialization.Attributes;
 namespace Il2CppInspector.Next.Metadata;
 
 using StringIndex = int;
-using TypeDefinitionIndex = int;
-using TypeIndex = int;
 using ParameterIndex = int;
-using GenericContainerIndex = int;
 
 [VersionedStruct]
 public partial record struct Il2CppMethodDefinition
@@ -18,7 +15,7 @@ public partial record struct Il2CppMethodDefinition
     public TypeDefinitionIndex DeclaringType { get; private set; }
     public TypeIndex ReturnType { get; private set; }
 
-    [VersionCondition(EqualTo = "31.0")]
+    [VersionCondition(GreaterThan = "31.0")]
     public uint ReturnParameterToken { get; private set; }
 
     public ParameterIndex ParameterStart { get; private set; }

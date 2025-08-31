@@ -20,6 +20,10 @@ public partial record struct Il2CppAssemblyDefinition
     [VersionCondition(GreaterThan = "24.1")]
     public uint Token;
 
+    [FieldOffset(20 + 52)]
+    [VersionCondition(GreaterThan = "38.0")]
+    public uint ModuleToken;
+
     [FieldOffset(8)]
     [VersionCondition(LessThan = "24.0")]
     public int CustomAttributeIndex;

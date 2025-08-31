@@ -14,6 +14,7 @@ using Il2CppInspector.Cpp;
 using Il2CppInspector.Cpp.UnityHeaders;
 using Il2CppInspector.Next;
 using Il2CppInspector.Reflection;
+using Spectre.Console;
 
 namespace Il2CppInspector.Model
 {
@@ -39,6 +40,9 @@ namespace Il2CppInspector.Model
         // All of the C++ types used in the application (.NET type translations only)
         // The types are ordered to enable the production of code output without forward dependencies
         public List<CppType> DependencyOrderedCppTypes { get; private set; }
+
+        // Required forward definition types for the C++ type definitions
+        public List<CppType> RequiredForwardDefinitions { get; private set; } = [];
 
         // Composite mapping of all the .NET methods in the IL2CPP binary
         public MultiKeyDictionary<MethodBase, CppFnPtrType, AppMethod> Methods { get; } = new MultiKeyDictionary<MethodBase, CppFnPtrType, AppMethod>();
@@ -149,12 +153,12 @@ namespace Il2CppInspector.Model
             UnityHeaders = unityVersion != null ? UnityHeaders.GetHeadersForVersion(unityVersion) : UnityHeaders.GuessHeadersForBinary(TypeModel.Package.Binary).Last();
             UnityVersion = unityVersion ?? UnityHeaders.VersionRange.Min;
 
-            Console.WriteLine($"Selected Unity version(s) {UnityHeaders.VersionRange} (types: {UnityHeaders.TypeHeaderResource.VersionRange}, APIs: {UnityHeaders.APIHeaderResource.VersionRange})");
+            AnsiConsole.WriteLine($"Selected Unity version(s) {UnityHeaders.VersionRange} (types: {UnityHeaders.TypeHeaderResource.VersionRange}, APIs: {UnityHeaders.APIHeaderResource.VersionRange})");
 
             // Check for matching metadata and binary versions
             if (UnityHeaders.MetadataVersion != Image.Version) {
-                Console.WriteLine($"Warning: selected version {UnityVersion} (metadata version {UnityHeaders.MetadataVersion})" +
-                                    $" does not match metadata version {Image.Version}.");
+                AnsiConsole.WriteLine($"Warning: selected version {UnityVersion} (metadata version {UnityHeaders.MetadataVersion})" +
+                                      $" does not match metadata version {Image.Version}.");
             }
 
             // Initialize declaration generator to process every type in the binary
@@ -236,8 +240,18 @@ namespace Il2CppInspector.Model
                             break;
                         case MetadataUsageType.MethodDef or MetadataUsageType.MethodRef:
                             var method = TypeModel.GetMetadataUsageMethod(usage);
+
                             declarationGenerator.IncludeMethod(method);
-                            AddTypes(declarationGenerator.GenerateRemainingTypeDeclarations());
+                            var definitions = declarationGenerator.GenerateRemainingTypeDeclarations();
+                            if (definitions == null)
+                            {
+                                // if we end up here, type generation has failed
+                                // todo: this try/catch is a massive hack to sidestep the original issue of generation failing,
+                                // todo: this needs to be improved.
+                                break;
+                            }
+
+                            AddTypes(definitions);
 
                             // Any method here SHOULD already be in the Methods list
                             // but we have seen one example where this is not the case for a MethodDef
@@ -247,6 +261,7 @@ namespace Il2CppInspector.Model
                                 Methods.Add(method, fnPtr, new AppMethod(method, fnPtr) { Group = Group });
                             }
                             Methods[method].MethodInfoPtrAddress = address;
+
                             break;
 
                         // FieldInfo is used for array initializers.
@@ -293,6 +308,8 @@ namespace Il2CppInspector.Model
             foreach (var type in unusedConcreteTypes)
                 declarationGenerator.IncludeType(type);
             AddTypes(declarationGenerator.GenerateRemainingTypeDeclarations());
+
+            RequiredForwardDefinitions = declarationGenerator.GenerateRequiredForwardDefinitions();
 
             // Restore stdout
             Console.SetOut(stdout);

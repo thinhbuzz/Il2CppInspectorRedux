@@ -1,11 +1,10 @@
 ﻿using System.Reflection;
+using VersionedSerialization;
 using VersionedSerialization.Attributes;
 
 namespace Il2CppInspector.Next.Metadata;
 
 using StringIndex = int;
-using TypeIndex = int;
-using GenericContainerIndex = int;
 using FieldIndex = int;
 using MethodIndex = int;
 using EventIndex = int;
@@ -17,7 +16,7 @@ using VTableIndex = int;
 [VersionedStruct]
 public partial record struct Il2CppTypeDefinition
 {
-    public const TypeIndex InvalidTypeIndex = -1;
+    public static readonly TypeIndex InvalidTypeIndex = -1;
 
     public StringIndex NameIndex { get; private set; }
     public StringIndex NamespaceIndex { get; private set; }
@@ -32,6 +31,8 @@ public partial record struct Il2CppTypeDefinition
 
     public TypeIndex DeclaringTypeIndex { get; private set; }
     public TypeIndex ParentIndex { get; private set; }
+
+    [VersionCondition(LessThan = "31.0")]
     public TypeIndex ElementTypeIndex { get; private set; }
 
     [VersionCondition(LessThan = "24.1")]
@@ -80,4 +81,9 @@ public partial record struct Il2CppTypeDefinition
     public uint Token { get; private set; }
 
     public readonly bool IsValid => NameIndex != 0;
+
+    public int GetEnumElementTypeIndex(StructVersion version)
+        => version >= MetadataVersions.V350
+            ? ParentIndex
+            : ElementTypeIndex;
 }

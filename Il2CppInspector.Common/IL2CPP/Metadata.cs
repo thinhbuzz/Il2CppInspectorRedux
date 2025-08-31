@@ -5,15 +5,10 @@
     All rights reserved.
 */
 
-using System;
-using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.IO;
-using System.Linq;
-using System.Reflection;
+using System.Runtime.CompilerServices;
 using Il2CppInspector.Next;
 using Il2CppInspector.Next.Metadata;
-using NoisyCowStudios.Bin2Object;
 using VersionedSerialization;
 
 namespace Il2CppInspector
@@ -48,7 +43,15 @@ namespace Il2CppInspector
         public ImmutableArray<uint> VTableMethodIndices { get; set; }
         public string[] StringLiterals { get; set; }
 
-        public Dictionary<int, string> Strings { get; private set; } = new Dictionary<int, string>();
+        public int FieldAndParameterDefaultValueDataOffset => Version >= MetadataVersions.V380
+            ? Header.FieldAndParameterDefaultValueData.Offset
+            : Header.FieldAndParameterDefaultValueDataOffset;
+
+        public int AttributeDataOffset => Version >= MetadataVersions.V380
+            ? Header.AttributeData.Offset
+            : Header.AttributeDataOffset;
+
+        public Dictionary<int, string> Strings { get; private set; } = [];
 
         // Set if something in the metadata has been modified / decrypted
         public bool IsModified { get; private set; } = false;
@@ -92,12 +95,55 @@ namespace Il2CppInspector
             // Set object versioning for Bin2Object from metadata version
             Version = new StructVersion(Header.Version);
 
-            if (Version < MetadataVersions.V160 || Version > MetadataVersions.V310) {
+            if (Version < MetadataVersions.V160 || Version > MetadataVersions.V380) {
                 throw new InvalidOperationException($"The supplied metadata file is not of a supported version ({Header.Version}).");
             }
 
             // Rewind and read metadata header with the correct version settings
             Header = ReadVersionedObject<Il2CppGlobalMetadataHeader>(0);
+
+            // Setup the proper index sizes for metadata v38+
+            if (Version >= MetadataVersions.V380) 
+            {
+                static int GetIndexSize(int elementCount)
+                {
+                    return elementCount switch
+                    {
+                        <= byte.MaxValue => sizeof(byte),
+                        <= ushort.MaxValue => sizeof(ushort),
+                        _ => sizeof(int)
+                    };
+                }
+
+                var typeDefinitionIndexSize = GetIndexSize(Header.TypeDefinitions.Count);
+                var genericContainerIndexSize = GetIndexSize(Header.GenericContainers.Count);
+
+                var tag = $"{TypeDefinitionIndex.TagPrefix}{typeDefinitionIndexSize}"
+                          + $"_{GenericContainerIndex.TagPrefix}{genericContainerIndexSize}";
+
+                var tempVersion = new StructVersion(Version.Major, Version.Minor, tag);
+
+                // now we need to derive the size for TypeIndex.
+                // this is normally done through s_Il2CppMetadataRegistration->typesCount, but we don't want to use the binary for this
+                // as we do not have it available at this point.
+                // thankfully, we can just guess the size based off the three available options and the known total size of
+                // a type entry that uses TypeIndex.
+                var expectedEventDefinitionSize = Header.Events.SectionSize / Header.Events.Count;
+                var maxEventDefinitionSize = Il2CppEventDefinition.Size(tempVersion);
+
+                int typeIndexSize;
+                if (expectedEventDefinitionSize == maxEventDefinitionSize)
+                    typeIndexSize = sizeof(int);
+                else if (expectedEventDefinitionSize == maxEventDefinitionSize - 2)
+                    typeIndexSize = sizeof(ushort);
+                else if (expectedEventDefinitionSize == maxEventDefinitionSize - 3)
+                    typeIndexSize = sizeof(byte);
+                else
+                    throw new InvalidOperationException("Could not determine TypeIndex size based on the metadata header");
+
+                var fullTag = $"{tag}_{TypeIndex.TagPrefix}{typeIndexSize}";
+                Version = new StructVersion(Version.Major, Version.Minor, fullTag);
+            }
 
             // Sanity checking
             // Unity.IL2CPP.MetadataCacheWriter.WriteLibIl2CppMetadata always writes the metadata information in the same order it appears in the header,
@@ -122,10 +168,10 @@ namespace Il2CppInspector
                     throw new InvalidOperationException("Could not verify the integrity of the metadata file or accurately identify the metadata sub-version");
                 }
             }
-            
+
             // Load all the relevant metadata using offsets provided in the header
             if (Version >= MetadataVersions.V160)
-                Images = ReadVersionedObjectArray<Il2CppImageDefinition>(Header.ImagesOffset,  Header.ImagesSize / Sizeof<Il2CppImageDefinition>());
+                Images = ReadMetadataArray<Il2CppImageDefinition>(Header.ImagesOffset, Header.ImagesSize, Header.Images);
 
             // As an additional sanity check, all images in the metadata should have Mono.Cecil.MetadataToken == 1
             // In metadata v24.1, two extra fields were added which will cause the below test to fail.
@@ -136,28 +182,29 @@ namespace Il2CppInspector
                     Version = MetadataVersions.V241;
 
                     // No need to re-read the header, it's the same for both sub-versions
-                    Images = ReadVersionedObjectArray<Il2CppImageDefinition>(Header.ImagesOffset, Header.ImagesSize / Sizeof<Il2CppImageDefinition>());
+                    Images = ReadMetadataArray<Il2CppImageDefinition>(Header.ImagesOffset, Header.ImagesSize, Header.Images);
 
                     if (Images.Any(x => x.Token != 1))
                         throw new InvalidOperationException("Could not verify the integrity of the metadata file image list");
                 }
 
-            Types = ReadVersionedObjectArray<Il2CppTypeDefinition>(Header.TypeDefinitionsOffset, Header.TypeDefinitionsSize / Sizeof<Il2CppTypeDefinition>());
-            Methods = ReadVersionedObjectArray<Il2CppMethodDefinition>(Header.MethodsOffset, Header.MethodsSize / Sizeof<Il2CppMethodDefinition>());
-            Params = ReadVersionedObjectArray<Il2CppParameterDefinition>(Header.ParametersOffset, Header.ParametersSize / Sizeof<Il2CppParameterDefinition>());
-            Fields = ReadVersionedObjectArray<Il2CppFieldDefinition>(Header.FieldsOffset, Header.FieldsSize / Sizeof<Il2CppFieldDefinition>());
-            FieldDefaultValues = ReadVersionedObjectArray<Il2CppFieldDefaultValue>(Header.FieldDefaultValuesOffset, Header.FieldDefaultValuesSize / Sizeof<Il2CppFieldDefaultValue>());
-            Properties = ReadVersionedObjectArray<Il2CppPropertyDefinition>(Header.PropertiesOffset, Header.PropertiesSize / Sizeof<Il2CppPropertyDefinition>());
-            Events = ReadVersionedObjectArray<Il2CppEventDefinition>(Header.EventsOffset, Header.EventsSize / Sizeof<Il2CppEventDefinition>());
-            InterfaceUsageIndices = ReadPrimitiveArray<int>(Header.InterfacesOffset, Header.InterfacesSize / sizeof(int));
-            NestedTypeIndices = ReadPrimitiveArray<int>(Header.NestedTypesOffset, Header.NestedTypesSize / sizeof(int));
-            GenericContainers = ReadVersionedObjectArray<Il2CppGenericContainer>(Header.GenericContainersOffset, Header.GenericContainersSize / Sizeof<Il2CppGenericContainer>());
-            GenericParameters = ReadVersionedObjectArray<Il2CppGenericParameter>(Header.GenericParametersOffset, Header.GenericParametersSize / Sizeof<Il2CppGenericParameter>());
-            GenericConstraintIndices = ReadPrimitiveArray<int>(Header.GenericParameterConstraintsOffset, Header.GenericParameterConstraintsSize / sizeof(int));
-            InterfaceOffsets = ReadVersionedObjectArray<Il2CppInterfaceOffsetPair>(Header.InterfaceOffsetsOffset, Header.InterfaceOffsetsSize / Sizeof<Il2CppInterfaceOffsetPair>());
-            VTableMethodIndices = ReadPrimitiveArray<uint>(Header.VTableMethodsOffset, Header.VTableMethodsSize / sizeof(uint));
+            Types = ReadMetadataArray<Il2CppTypeDefinition>(Header.TypeDefinitionsOffset, Header.TypeDefinitionsSize, Header.TypeDefinitions);
+            Methods = ReadMetadataArray<Il2CppMethodDefinition>(Header.MethodsOffset, Header.MethodsSize, Header.Methods);
+            Params = ReadMetadataArray<Il2CppParameterDefinition>(Header.ParametersOffset, Header.ParametersSize, Header.Parameters);
+            Fields = ReadMetadataArray<Il2CppFieldDefinition>(Header.FieldsOffset, Header.FieldsSize, Header.Fields);
+            FieldDefaultValues = ReadMetadataArray<Il2CppFieldDefaultValue>(Header.FieldDefaultValuesOffset, Header.FieldDefaultValuesSize, Header.FieldDefaultValues);
+            Properties = ReadMetadataArray<Il2CppPropertyDefinition>(Header.PropertiesOffset, Header.PropertiesSize, Header.Properties);
+            Events = ReadMetadataArray<Il2CppEventDefinition>(Header.EventsOffset, Header.EventsSize, Header.Events);
+            InterfaceUsageIndices = ReadMetadataPrimitiveArray<int>(Header.InterfacesOffset, Header.InterfacesSize, Header.Interfaces);
+            NestedTypeIndices = ReadMetadataPrimitiveArray<int>(Header.NestedTypesOffset, Header.NestedTypesSize, Header.NestedTypes);
+            GenericContainers = ReadMetadataArray<Il2CppGenericContainer>(Header.GenericContainersOffset, Header.GenericContainersSize, Header.GenericContainers);
+            GenericParameters = ReadMetadataArray<Il2CppGenericParameter>(Header.GenericParametersOffset, Header.GenericParametersSize, Header.GenericParameters);
+            GenericConstraintIndices = ReadMetadataPrimitiveArray<int>(Header.GenericParameterConstraintsOffset, Header.GenericParameterConstraintsSize, Header.GenericParameterConstraints);
+            InterfaceOffsets = ReadMetadataArray<Il2CppInterfaceOffsetPair>(Header.InterfaceOffsetsOffset, Header.InterfaceOffsetsSize, Header.InterfaceOffsets);
+            VTableMethodIndices = ReadMetadataPrimitiveArray<uint>(Header.VTableMethodsOffset, Header.VTableMethodsSize, Header.VtableMethods);
 
-            if (Version >= MetadataVersions.V160) {
+            if (Version >= MetadataVersions.V160) 
+            {
                 // In v24.4 hashValueIndex was removed from Il2CppAssemblyNameDefinition, which is a field in Il2CppAssemblyDefinition
                 // The number of images and assemblies should be the same. If they are not, we deduce that we are using v24.4
                 // Note the version comparison matches both 24.2 and 24.3 here since 24.3 is tested for during binary loading
@@ -167,32 +214,39 @@ namespace Il2CppInspector
                 {
                     if (Version == MetadataVersions.V241)
                         changedAssemblyDefStruct = true;
+
                     Version = MetadataVersions.V244;
                 }
 
-                Assemblies = ReadVersionedObjectArray<Il2CppAssemblyDefinition>(Header.AssembliesOffset, Images.Length);
+                Assemblies = ReadMetadataArray<Il2CppAssemblyDefinition>(Header.AssembliesOffset, Header.AssembliesSize, Header.Assemblies);
 
                 if (changedAssemblyDefStruct)
                     Version = MetadataVersions.V241;
 
-                ParameterDefaultValues = ReadVersionedObjectArray<Il2CppParameterDefaultValue>(Header.ParameterDefaultValuesOffset, Header.ParameterDefaultValuesSize / Sizeof<Il2CppParameterDefaultValue>());
+                ParameterDefaultValues = ReadMetadataArray<Il2CppParameterDefaultValue>(Header.ParameterDefaultValuesOffset, Header.ParameterDefaultValuesSize, Header.ParameterDefaultValues);
             }
-            if (Version >= MetadataVersions.V190 && Version < MetadataVersions.V270) {
-                MetadataUsageLists = ReadVersionedObjectArray<Il2CppMetadataUsageList>(Header.MetadataUsageListsOffset, Header.MetadataUsageListsCount / Sizeof<Il2CppMetadataUsageList>());
-                MetadataUsagePairs = ReadVersionedObjectArray<Il2CppMetadataUsagePair>(Header.MetadataUsagePairsOffset, Header.MetadataUsagePairsCount / Sizeof<Il2CppMetadataUsagePair>());
+
+            if (Version >= MetadataVersions.V190 && Version < MetadataVersions.V270) 
+            {
+                MetadataUsageLists = ReadMetadataArray<Il2CppMetadataUsageList>(Header.MetadataUsageListsOffset, Header.MetadataUsageListsCount, default);
+                MetadataUsagePairs = ReadMetadataArray<Il2CppMetadataUsagePair>(Header.MetadataUsagePairsOffset, Header.MetadataUsagePairsCount, default);
             }
-            if (Version >= MetadataVersions.V190) {
-                FieldRefs = ReadVersionedObjectArray<Il2CppFieldRef>(Header.FieldRefsOffset, Header.FieldRefsSize / Sizeof<Il2CppFieldRef>());
+
+            if (Version >= MetadataVersions.V190) 
+            {
+                FieldRefs = ReadMetadataArray<Il2CppFieldRef>(Header.FieldRefsOffset, Header.FieldRefsSize, Header.FieldRefs);
             }
-            if (Version >= MetadataVersions.V210 && Version < MetadataVersions.V290) {
-                AttributeTypeIndices = ReadPrimitiveArray<int>(Header.AttributesTypesOffset, Header.AttributesTypesCount / sizeof(int));
-                AttributeTypeRanges = ReadVersionedObjectArray<Il2CppCustomAttributeTypeRange>(Header.AttributesInfoOffset, Header.AttributesInfoCount / Sizeof<Il2CppCustomAttributeTypeRange>());
+
+            if (Version >= MetadataVersions.V210 && Version < MetadataVersions.V290) 
+            {
+                AttributeTypeIndices = ReadMetadataPrimitiveArray<int>(Header.AttributesTypesOffset, Header.AttributesTypesCount, default);
+                AttributeTypeRanges = ReadMetadataArray<Il2CppCustomAttributeTypeRange>(Header.AttributesInfoOffset, Header.AttributesInfoCount, default);
             }
 
             if (Version >= MetadataVersions.V290)
             {
-                AttributeDataRanges = ReadVersionedObjectArray<Il2CppCustomAttributeDataRange>(Header.AttributeDataRangeOffset,
-                    Header.AttributeDataRangeSize / Sizeof<Il2CppCustomAttributeDataRange>());
+                AttributeDataRanges = ReadMetadataArray<Il2CppCustomAttributeDataRange>(Header.AttributeDataRangeOffset,
+                    Header.AttributeDataRangeSize, Header.AttributeDataRanges);
             }
 
             // Get all metadata strings
@@ -212,23 +266,63 @@ namespace Il2CppInspector
             if (pluginGetStringLiteralsResult.IsDataModified)
                 StringLiterals = pluginGetStringLiteralsResult.StringLiterals.ToArray();
 
-            else {
-                var stringLiteralList = ReadVersionedObjectArray<Il2CppStringLiteral>(Header.StringLiteralOffset, Header.StringLiteralSize / Sizeof<Il2CppStringLiteral>());
+            else
+            {
+                var stringLiteralList = ReadMetadataArray<Il2CppStringLiteral>(Header.StringLiteralOffset,
+                    Header.StringLiteralSize, Header.StringLiterals);
 
-                StringLiterals = new string[stringLiteralList.Length];
-                for (var i = 0; i < stringLiteralList.Length; i++)
-                    StringLiterals[i] = ReadFixedLengthString(Header.StringLiteralDataOffset + stringLiteralList[i].DataIndex, (int)stringLiteralList[i].Length);
+                var dataOffset = Version >= MetadataVersions.V380
+                    ? Header.StringLiteralData.Offset
+                    : Header.StringLiteralDataOffset;
+
+                if (Version >= MetadataVersions.V350)
+                {
+                    StringLiterals = new string[stringLiteralList.Length - 1];
+                    for (var i = 0; i < stringLiteralList.Length; i++)
+                    {
+                        var currentStringDataIndex = stringLiteralList[i].DataIndex;
+                        var nextStringDataIndex = stringLiteralList[i + 1].DataIndex;
+                        var stringLength = nextStringDataIndex - currentStringDataIndex;
+
+                        StringLiterals[i] = ReadFixedLengthString(dataOffset + currentStringDataIndex, stringLength);
+                    }
+                }
+                else
+                {
+                    StringLiterals = new string[stringLiteralList.Length];
+                    for (var i = 0; i < stringLiteralList.Length; i++)
+                        StringLiterals[i] = ReadFixedLengthString(dataOffset + stringLiteralList[i].DataIndex, 
+                            (int)stringLiteralList[i].Length);
+
+                }
             }
 
             // Post-processing hook
             IsModified |= PluginHooks.PostProcessMetadata(this).IsStreamModified;
+            return;
+        }
+
+        public ImmutableArray<T> ReadMetadataPrimitiveArray<T>(int oldOffset, int oldSize, Il2CppSectionMetadata newMetadata)
+            where T : unmanaged
+        {
+            return Version >= MetadataVersions.V380
+                ? ReadPrimitiveArray<T>(newMetadata.Offset, newMetadata.Count)
+                : ReadPrimitiveArray<T>(oldOffset, oldSize / Unsafe.SizeOf<T>());
+        }
+
+        public ImmutableArray<T> ReadMetadataArray<T>(int oldOffset, int oldSize, Il2CppSectionMetadata newMetadata)
+            where T : IReadable, new()
+        {
+            return Version >= MetadataVersions.V380
+                ? ReadVersionedObjectArray<T>(newMetadata.Offset, newMetadata.Count)
+                : ReadVersionedObjectArray<T>(oldOffset, oldSize / Sizeof<T>());
         }
 
         // Save metadata to file, overwriting if necessary
         public void SaveToFile(string pathname) {
             Position = 0;
-            using (var outFile = new FileStream(pathname, FileMode.Create, FileAccess.Write))
-                CopyTo(outFile);
+            using var outFile = new FileStream(pathname, FileMode.Create, FileAccess.Write);
+            CopyTo(outFile);
         }
 
         public int Sizeof<T>() where T : IReadable => T.Size(Version, Is32Bit);

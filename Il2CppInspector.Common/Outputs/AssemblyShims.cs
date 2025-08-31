@@ -562,7 +562,7 @@ namespace Il2CppInspector.Outputs
             return def.AddAttribute(module, attributeAttribute,
                 ("Name", ca.AttributeType.Name),
                 ("RVA", (ca.VirtualAddress.Start - model.Package.BinaryImage.ImageBase).ToAddressString()),
-                ("Offset", string.Format("0x{0:X}", model.Package.BinaryImage.MapVATR(ca.VirtualAddress.Start)))
+                ("Offset", $"0x{model.Package.BinaryImage.MapVATR(ca.VirtualAddress.Start):X}")
             );
         }
 

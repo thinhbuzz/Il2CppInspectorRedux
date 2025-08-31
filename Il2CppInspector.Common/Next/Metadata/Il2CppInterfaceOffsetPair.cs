@@ -2,8 +2,6 @@
 
 namespace Il2CppInspector.Next.Metadata;
 
-using TypeIndex = int;
-
 [VersionedStruct]
 public partial record struct Il2CppInterfaceOffsetPair
 {

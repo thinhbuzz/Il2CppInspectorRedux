@@ -4,13 +4,14 @@
     All rights reserved.
 */
 
+using NoisyCowStudios.Bin2Object;
+using Spectre.Console;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
-using NoisyCowStudios.Bin2Object;
 
 namespace Il2CppInspector
 {
@@ -102,7 +103,7 @@ namespace Il2CppInspector
             // Unpacking must be done starting here, one byte after the end of the headers
             // Packed or previously packed with Themida? This is purely for information
             if (sections.FirstOrDefault(x => x.Name == ".themida") is PESection _)
-                Console.WriteLine("Themida protection detected");
+                AnsiConsole.WriteLine("Themida protection detected");
 
             // Packed with anything (including Themida)?
             mightBePacked = sections.FirstOrDefault(x => x.Name == ".rdata") is null;
@@ -114,26 +115,31 @@ namespace Il2CppInspector
                     section.Name = wantedSectionTypes[section.Characteristics];
 
             // Get base of code
-            GlobalOffset = pe.ImageBase + pe.BaseOfCode - sections.First(x => x.Name == ".text").PointerToRawData;
+            GlobalOffset = pe.ImageBase + pe.BaseOfCode - sections
+                .FirstOrDefault(x => x.Characteristics.HasFlag(PE.IMAGE_SCN_MEM_EXECUTE))?.PointerToRawData ?? 0;
 
             // Confirm that .rdata section begins at same place as IAT
-            var rData = sections.First(x => x.Name == ".rdata");
-            mightBePacked |= rData.VirtualAddress != IATStart;
+            var rData = sections.FirstOrDefault(x => x.Name == ".rdata");
+            mightBePacked |= rData == null || rData.VirtualAddress != IATStart;
+            if (rData != null)
+            {
+                // Calculate start of function pointer table
+                pFuncTable = rData.PointerToRawData + IATSize;
 
-            // Calculate start of function pointer table
-            pFuncTable = rData.PointerToRawData + IATSize;
-
-            // Skip over __guard_check_icall_fptr and __guard_dispatch_icall_fptr if present, then the following zero offset
-            Position = pFuncTable;
-            if (pe is PEOptHeader32) {
-                while (ReadUInt32() != 0)
+                // Skip over __guard_check_icall_fptr and __guard_dispatch_icall_fptr if present, then the following zero offset
+                Position = pFuncTable;
+                if (pe is PEOptHeader32)
+                {
+                    while (ReadUInt32() != 0)
+                        pFuncTable += 4;
                     pFuncTable += 4;
-                pFuncTable += 4;
-            }
-            else {
-                while (ReadUInt64() != 0)
+                }
+                else
+                {
+                    while (ReadUInt64() != 0)
+                        pFuncTable += 8;
                     pFuncTable += 8;
-                pFuncTable += 8;
+                }
             }
 
             // In the fist go round, we signal that this is at least a valid PE file; we don't try to unpack yet

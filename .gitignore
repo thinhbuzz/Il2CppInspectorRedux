@@ -270,3 +270,6 @@ paket-files/
 /Il2CppTests/TestCpp
 /*-arm64
 /*-x64
+
+# for dotnet-tools.json
+.config

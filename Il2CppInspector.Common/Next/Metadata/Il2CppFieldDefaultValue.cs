@@ -3,7 +3,6 @@
 namespace Il2CppInspector.Next.Metadata;
 
 using FieldIndex = int;
-using TypeIndex = int;
 using DefaultValueDataIndex = int;
 
 [VersionedStruct]

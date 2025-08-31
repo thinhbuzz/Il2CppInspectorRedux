@@ -8,7 +8,7 @@ This is a continuation of [Il2CppInspector, by djkaty](https://github.com/djkaty
 
 ### Redux only features
 
-* Support for metadata version 29 and 29.1, with full reconstruction of custom attributes
+* Support for metadata version 29/29.1/31/35/38, with full reconstruction of custom attributes
 * Proper extraction of static array initializer contents with their correct length
 * Proper support for v27.2+ Il2CppType
 * Fixed support for v24.5
@@ -28,6 +28,17 @@ This is a continuation of [Il2CppInspector, by djkaty](https://github.com/djkaty
     - Addition of custom fake string segment to show string literal contents in decompiler
     - A fake xref between MethodInfo instances and their corresponding method to quickly get the correct function
 * Binary Ninja script output, with all of the IDA-exclusive features
+* New cross-platform capable CLI and GUIs with dark mode support, providing the same output formats.
+
+> [!NOTE]  
+> As not all of the old UI features are implemented in the new UIs yet,
+> the old ones are still built by GitHub Actions and available in the releases with the `Old` suffix.
+
+> [!IMPORTANT]  
+> The below README is still largely based on the original Il2CppInspector documentation, 
+> and may not reflect all of the changes/differences in Il2CppInspectorRedux. 
+> Notably, it still features the old UIs and not the new Redux ones,  
+> among others that have been removed in Redux.
 
 ### Main features
 
@@ -754,8 +765,10 @@ Unity version | IL2CPP version | Support
 2020.2.4-2020.3.x | 27.1 | Working
 2021.1.0-2021.1.x | 27.2 | Working
 2021.2.0-2021.2.x | 29 | Working
-2021.3.0+ | 29.1 | Working
-2022.3.33+ | 31(.1) | Working
+2021.3.0-??? | 29.1 | Working
+2022.3.33-6000.2.x | 31(.1) | Working
+6000.3.0a2 | 35 | Working
+6000.3.0a5 | 38 | Working
 
 Please refer to the companion repository https://github.com/nneonneo/Il2CppVersions if you would like to track the changes between each IL2CPP release version.
 
@@ -785,7 +798,6 @@ Thanks to the following major contributors!
 This project uses:
 
 - [MultiKeyDictionary](https://www.codeproject.com/Articles/32894/C-Multi-key-Generic-Dictionary) by Aron Weiler
-- [CxxDemangler](https://github.com/southpolenator/CxxDemangler) by Vuk Jovanovic
 - [CommandLineParser](https://github.com/commandlineparser/commandline) 
 - [Ookii.Dialogs.Wpf](https://github.com/augustoproiete/ookii-dialogs-wpf)
 - [XamlAnimatedGif](https://github.com/XamlAnimatedGif/WpfAnimatedGif) by Thomas Levesque

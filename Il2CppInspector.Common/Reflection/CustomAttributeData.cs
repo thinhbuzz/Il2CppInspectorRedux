@@ -118,8 +118,8 @@ namespace Il2CppInspector.Reflection
                     var range = pkg.Metadata.AttributeDataRanges[customAttributeIndex];
                     var next = pkg.Metadata.AttributeDataRanges[customAttributeIndex + 1];
 
-                    var startOffset = (uint)pkg.Metadata.Header.AttributeDataOffset + range.StartOffset;
-                    var endOffset = (uint)pkg.Metadata.Header.AttributeDataOffset + next.StartOffset;
+                    var startOffset = (uint)pkg.Metadata.AttributeDataOffset + range.StartOffset;
+                    var endOffset = (uint)pkg.Metadata.AttributeDataOffset + next.StartOffset;
 
                     var reader = new CustomAttributeDataReader(pkg, asm, pkg.Metadata, startOffset, endOffset);
                     if (reader.Count == 0)

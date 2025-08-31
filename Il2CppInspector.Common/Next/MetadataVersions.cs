@@ -28,4 +28,11 @@ public static class MetadataVersions
 
     // No tag - 29.0/31.0
     public static readonly string Tag2022 = "2022"; // 29.1/31.1
+
+    // Unity 6000.3.0a2
+    public static readonly StructVersion V350 = new(35);
+
+    // Unity 6000.3.0a5
+    public static readonly StructVersion V380 = new(38);
+    // NOTE: This version uses tags to specify the size of TypeIndex, TypeDefinitionIndex, and GenericContainerIndex.
 }
