@@ -3,113 +3,7 @@ name: Il2CppInspectorRedux Build
 on: [push, workflow_dispatch]
 
 jobs:
-  build-redux-gui: # this already includes stuff only relevant for linux/macos for when the gui is released on those platforms
-    runs-on: windows-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '9.0.x'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-          run_install: false
-
-      - name: Setup Node.JS
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-
-      - name: Setup Tauri dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - name: Install frontend dependencies
-        run: pnpm install
-        working-directory: ./Il2CppInspector.Redux.GUI.UI
-  
-      - uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-redux-gui-${{ hashFiles('**/packages.lock.json') }}
-          restore-keys: |
-              ${{ runner.os }}-nuget-redux-gui-
-
-      - name: Restore NuGet packages
-        run: dotnet restore -r win-x64 ./Il2CppInspector.Redux.GUI
-      
-        # note: we embed the exe directly into the c# component, and it it is built alongside it
-        # in another msbuild target.
-      - name: Build GUI
-        run: dotnet publish ./Il2CppInspector.Redux.GUI/Il2CppInspector.Redux.GUI.csproj -r win-x64 --no-self-contained
-
-      - name: Copy components to output directory
-        run: |
-           mkdir ./build_output
-           cp ./Il2CppInspector.Redux.GUI/bin/Release/net9.0/win-x64/publish/Il2CppInspector.Redux.GUI.exe ./build_output/
-
-      - name: Upload GUI Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Il2CppInspectorRedux.GUI
-          path: build_output
-
-  build-redux-cli:
-      runs-on: ubuntu-latest
-      strategy:
-        matrix:
-          dotnet-version: [ '9.0.x' ]
-          rid: ['win-x64', 'linux-x64', 'linux-arm64', 'osx-x64', 'osx-arm64']
-
-      steps:
-        - uses: actions/checkout@v4
-          with:
-            submodules: true
-
-        - name: Setup .NET SDK
-          uses: actions/setup-dotnet@v4
-          with:
-            dotnet-version: '9.0.x'
-  
-        - uses: actions/cache@v3
-          with:
-            path: ~/.nuget/packages
-            key: ${{ runner.os }}-nuget-cli-${{ matrix.rid }}-${{ hashFiles('**/packages.lock.json') }}
-            restore-keys: |
-                ${{ runner.os }}-nuget-cli-${{ matrix.rid }}-
-
-        - name: Setup .NET SDK ${{ matrix.dotnet-version }}
-          uses: actions/setup-dotnet@v3
-          with:
-            dotnet-version: ${{ matrix.dotnet-version }}
-
-        - name: Install dependencies
-          run: dotnet restore -r ${{ matrix.rid }} ./Il2CppInspector.Redux.CLI
-
-        - name: Build & Publish
-          run: dotnet publish -c Release --no-self-contained --no-restore -o ./${{ matrix.rid }} -r ${{ matrix.rid }} ./Il2CppInspector.Redux.CLI/Il2CppInspector.Redux.CLI.csproj
-
-        - name: Upload artifacts
-          uses: actions/upload-artifact@v4
-          with:
-             name: Il2CppInspectorRedux.CLI-${{ matrix.rid }}
-             path: ./${{ matrix.rid }}
-
-  build-old-gui:
+  build-gui:
     runs-on: windows-latest
 
     steps:
@@ -142,10 +36,10 @@ jobs:
       - name: Upload GUI Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Il2CppInspectorRedux.Old.GUI
+          name: Il2CppInspectorRedux.GUI
           path: Il2CppInspector.GUI/bin/Release/net9.0-windows/win-x64/publish
 
-  build-old-cli:
+  build-cli:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -199,5 +93,5 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-           name: Il2CppInspectorRedux.Old.CLI-${{ matrix.rid }}
+           name: Il2CppInspectorRedux.CLI-${{ matrix.rid }}
            path: ./${{ matrix.rid }}
