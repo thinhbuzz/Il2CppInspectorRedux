@@ -102,6 +102,14 @@ namespace Il2CppInspector.Outputs
             sb.Append($"Modifier = \"{EscapeString(string.Join(" ", field.GetModifierStringRaw()))}\", ");
             sb.Append($"Name = \"{EscapeString(field.Name)}\", ");
             sb.Append($"Type = \"{EscapeString(GetFullNameWithGenerics(field.FieldType))}\"");
+            var originalNameAttributeData = field.CustomAttributes
+            .FirstOrDefault(a => a.AttributeType != null && a.AttributeType.Name.StartsWith("OriginalName"));
+
+            if (originalNameAttributeData != null && originalNameAttributeData.CtorInfo != null && originalNameAttributeData.CtorInfo.Arguments.Any())
+            {
+                sb.Append($", OriginalName = \"{EscapeString(originalNameAttributeData.CtorInfo.Arguments[0].Value?.ToString())}\"");
+            }
+
             sb.Append(")]\n");
             return sb.ToString();
         }
