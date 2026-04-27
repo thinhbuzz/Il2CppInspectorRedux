@@ -937,17 +937,16 @@ namespace Il2CppInspector.Outputs
 
             // Enumeration
             if (type.IsEnum) {
-                var enumFieldSb = new StringBuilder();
-                
-                // Generate CustomFieldAttribute for each enum field
-                foreach (var field in type.DeclaredFields.Where(f => f.IsLiteral && f.IsStatic)) {
-                    enumFieldSb.Append(GenerateCustomFieldAttributeInfo(field, prefix + "\t"));
-                }
-                
-                var enumValues = type.GetEnumNames().Zip(type.GetEnumValues().OfType<object>(),
-                              (k, v) => new { k, v }).OrderBy(x => x.v).Select(x => $"{prefix}\t{x.k} = {x.v}");
-                
-                sb.Append(enumFieldSb.ToString());
+                var enumFieldsByName = type.DeclaredFields.ToDictionary(f => f.Name);
+                var enumValues = type.GetEnumNames()
+                    .Zip(type.GetEnumValues().OfType<object>(), (k, v) => new { k, v })
+                    .OrderBy(x => x.v)
+                    .Select(x => {
+                        enumFieldsByName.TryGetValue(x.k, out var field);
+                        var customFieldAttribute = field != null? GenerateCustomFieldAttributeInfo(field, prefix + "\t") : string.Empty;
+                        return $"{customFieldAttribute}{prefix}\t{x.k} = {x.v}";
+                    });
+
                 sb.AppendJoin(",\n", enumValues);
                 sb.Append("\n");
             }
