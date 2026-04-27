@@ -89,7 +89,7 @@ namespace Il2CppInspector.Outputs
             return sb.ToString();
         }
 
-        private string GenerateCustomFieldAttributeInfo(FieldInfo field, string prefix = "")
+        private string GenerateCustomFieldAttributeInfo(FieldInfo field, string prefix = "", Scope scope = null)
         {
             if (SuppressMetadata)
                 return "";
@@ -102,6 +102,15 @@ namespace Il2CppInspector.Outputs
             sb.Append($"Modifier = \"{EscapeString(string.Join(" ", field.GetModifierStringRaw()))}\", ");
             sb.Append($"Name = \"{EscapeString(field.Name)}\", ");
             sb.Append($"Type = \"{EscapeString(GetFullNameWithGenerics(field.FieldType))}\"");
+            if (field.HasDefaultValue) {
+                // Enum constants should retain their raw numeric literal instead of symbolic enum names.
+                var valueText = field.DeclaringType.IsEnum
+                    ? field.DefaultValue?.ToString()
+                    : scope != null
+                        ? field.GetDefaultValueString(scope)
+                        : field.DefaultValue?.ToString();
+                sb.Append($", Value = \"{EscapeString(valueText)}\"");
+            }
             var originalNameAttributeData = field.CustomAttributes
             .FirstOrDefault(a => a.AttributeType != null && a.AttributeType.Name.StartsWith("OriginalName"));
 
@@ -649,7 +658,7 @@ namespace Il2CppInspector.Outputs
                         continue;
 
                     // Generate custom field attribute info
-                    sb.Append(GenerateCustomFieldAttributeInfo(field, prefix + "\t"));
+                    sb.Append(GenerateCustomFieldAttributeInfo(field, prefix + "\t", scope));
 
                     if (field.IsNotSerialized)
                         sb.Append(prefix + "\t[NonSerialized]\n");
@@ -943,7 +952,7 @@ namespace Il2CppInspector.Outputs
                     .OrderBy(x => x.v)
                     .Select(x => {
                         enumFieldsByName.TryGetValue(x.k, out var field);
-                        var customFieldAttribute = field != null? GenerateCustomFieldAttributeInfo(field, prefix + "\t") : string.Empty;
+                        var customFieldAttribute = field != null? GenerateCustomFieldAttributeInfo(field, prefix + "\t", scope) : string.Empty;
                         return $"{customFieldAttribute}{prefix}\t{x.k} = {x.v}";
                     });
 
