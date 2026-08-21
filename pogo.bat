@@ -2,7 +2,7 @@
 SET SCRIPT_DIR=%~dp0
 SET BUN_DIR=%SCRIPT_DIR%bun-builder
 SET CURRENT_DIR=%CD%
-IF NOT EXIST %BUN_DIR%/node_modules (
+IF NOT EXIST %BUN_DIR%/node_modules/adm-zip (
     cd /d %BUN_DIR% && bun install
     IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
     cd /d %CURRENT_DIR%

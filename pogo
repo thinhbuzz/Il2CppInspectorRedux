@@ -6,7 +6,7 @@ BUN_DIR="$SCRIPT_DIR/bun-builder"
 CURRENT_DIR=$(pwd)
 
 # Check if node_modules exists, if not run bun install
-if [ ! -d "$BUN_DIR/node_modules" ]; then
+if [ ! -d "$BUN_DIR/node_modules/adm-zip" ]; then
     cd "$BUN_DIR" && bun install
     if [ $? -ne 0 ]; then
         exit $?
