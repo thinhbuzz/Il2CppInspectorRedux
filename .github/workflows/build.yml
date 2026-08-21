@@ -1,22 +1,31 @@
-name: Il2CppInspectorRedux Build
+name: Il2CppInspectorRedux Build & Release
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name for release (leave blank if creating from current tag)'
+        required: false
+        default: ''
 
 jobs:
   build-gui:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '9.0.x'
   
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-gui-${{ hashFiles('**/packages.lock.json') }}
@@ -34,39 +43,33 @@ jobs:
         shell: pwsh
       
       - name: Upload GUI Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: Il2CppInspectorRedux.GUI
+          name: Il2CppInspectorRedux.GUI-win-x64
           path: Il2CppInspector.GUI/bin/Release/net9.0-windows/win-x64/publish
 
   build-cli:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        dotnet-version: [ '9.0.x' ]
         rid: ['win-x64', 'linux-x64', 'linux-arm64', 'osx-x64', 'osx-arm64']
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '9.0.x'
   
-      - uses: actions/cache@v3
+      - uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-cli-${{ matrix.rid }}-${{ hashFiles('**/packages.lock.json') }}
           restore-keys: |
               ${{ runner.os }}-nuget-cli-${{ matrix.rid }}-
-
-      - name: Setup .NET SDK ${{ matrix.dotnet-version }}
-        uses: actions/setup-dotnet@v3
-        with:
-          dotnet-version: ${{ matrix.dotnet-version }}
 
       - name: Install dependencies
         run: dotnet restore -r ${{ matrix.rid }} ./Il2CppInspector.CLI
@@ -91,7 +94,47 @@ jobs:
           cp bun-builder/index.ts bun-builder/bun.lock bun-builder/package.json ./${{ matrix.rid }}/bun-builder/
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
            name: Il2CppInspectorRedux.CLI-${{ matrix.rid }}
            path: ./${{ matrix.rid }}
+
+  release:
+    name: Create GitHub Release
+    needs: [build-gui, build-cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Archive artifacts into ZIP
+        run: |
+          mkdir -p release-assets
+          cd artifacts
+          for dir in */; do
+            dir_name="${dir%/}"
+            echo "Packaging $dir_name..."
+            if [[ "$dir_name" =~ (linux|osx) ]]; then
+              chmod +x "$dir_name"/il2cpp "$dir_name"/pogo "$dir_name"/Il2CppInspector.CLI 2>/dev/null || true
+            fi
+            (cd "$dir_name" && zip -r "../../release-assets/${dir_name}.zip" .)
+          done
+          cd ..
+          ls -lh release-assets/
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          files: release-assets/*.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
