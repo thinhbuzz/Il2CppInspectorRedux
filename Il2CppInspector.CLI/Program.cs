@@ -17,6 +17,7 @@ using Il2CppInspector.Cpp.UnityHeaders;
 using Il2CppInspector.Model;
 using Il2CppInspector.Outputs;
 using Il2CppInspector.Reflection;
+using Il2CppInspector.Utils;
 
 namespace Il2CppInspector.CLI
 {
@@ -257,8 +258,8 @@ namespace Il2CppInspector.CLI
             var unityAssembliesPath = string.Empty;
 
             if (options.CreateSolution) {
-                unityPath = Utils.FindPath(options.UnityPath);
-                unityAssembliesPath = Utils.FindPath(options.UnityAssembliesPath);
+                unityPath = PathUtils.FindPath(options.UnityPath);
+                unityAssembliesPath = PathUtils.FindPath(options.UnityAssembliesPath);
 
                 if (!Directory.Exists(unityPath)) {
                     Console.Error.WriteLine($"Unity path {unityPath} does not exist");

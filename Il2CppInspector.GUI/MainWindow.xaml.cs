@@ -1,4 +1,4 @@
-﻿/*
+/*
     Copyright 2020-2021 Katy Coe - http://www.djkaty.com - https://github.com/djkaty
 
     All rights reserved.
@@ -34,6 +34,7 @@ using Il2CppInspector.Reflection;
 using Ookii.Dialogs.Wpf;
 using Path = System.IO.Path;
 using Il2CppInspector.Cpp.UnityHeaders;
+using Il2CppInspector.Utils;
 using System.IO.Packaging;
 
 namespace Il2CppInspectorGUI
@@ -58,8 +59,8 @@ namespace Il2CppInspectorGUI
 
             // Find Unity paths
             var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-            txtUnityPath.Text = Utils.FindPath($@"{programFiles}\Unity\Hub\Editor\*") ?? "<not set>";
-            txtUnityScriptPath.Text = Utils.FindPath($@"{programFiles}\Unity\Hub\Editor\*\Editor\Data\Resources\PackageManager\ProjectTemplates\libcache\com.unity.template.3d-*\ScriptAssemblies") ?? "<not set>";
+            txtUnityPath.Text = PathUtils.FindPath($@"{programFiles}\Unity\Hub\Editor\*") ?? "<not set>";
+            txtUnityScriptPath.Text = PathUtils.FindPath($@"{programFiles}\Unity\Hub\Editor\*\Editor\Data\Resources\PackageManager\ProjectTemplates\libcache\com.unity.template.3d-*\ScriptAssemblies") ?? "<not set>";
 
             // Populate script target combo box and select IDA by default
             cboPyTarget.ItemsSource = PythonScript.GetAvailableTargets();
