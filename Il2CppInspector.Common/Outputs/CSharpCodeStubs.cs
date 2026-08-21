@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2017-2021 Katy Coe - http://www.djkaty.com - https://github.com/djkaty
+// Copyright (c) 2017-2021 Katy Coe - http://www.djkaty.com - https://github.com/djkaty
 // All rights reserved
 
 using System;
@@ -319,10 +319,34 @@ namespace Il2CppInspector.Outputs
 
         public void WriteFilesByClass(string outPath, bool flattenHierarchy) {
             usedAssemblyAttributes.Clear();
-            Parallel.ForEach(model.Assemblies.SelectMany(x => x.DefinedTypes), type => {
-                string relPath = GetRealPath(type);
-                string outFile = Path.Combine(outPath, flattenHierarchy ? relPath : Path.Combine(relPath.Split('.')) + ".cs");
-                writeFile(outFile, new[] {type});
+            var usedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var orderedTypes = model.Assemblies
+                .OrderBy(a => a.ShortName, StringComparer.Ordinal)
+                .SelectMany(x => x.DefinedTypes)
+                .Where(t => !t.IsNested)
+                .Where(t => !(MustCompile
+                    && t.Name == "Locale" && t.Namespace == string.Empty
+                    && t.BaseType?.FullName == "System.Object"
+                    && t.IsClass && t.IsSealed && t.IsNotPublic && !t.ContainsGenericParameters
+                    && t.DeclaredMembers.Count == t.DeclaredMethods.Count
+                    && t.GetMethods("GetText").Length == t.DeclaredMethods.Count))
+                .OrderBy(t => t.Assembly.ShortName, StringComparer.Ordinal)
+                .ThenBy(t => t.Namespace, StringComparer.Ordinal)
+                .ThenBy(t => GetRealTypeName(t), StringComparer.Ordinal)
+                .ThenBy(t => t.GenericTypeParameters.Length)
+                .ThenBy(t => t.Name, StringComparer.Ordinal)
+                .ThenBy(t => t.Index)
+                .Select(type => {
+                    string relPath = flattenHierarchy ? $"{type.Namespace}{(type.Namespace.Length > 0 ? "." : "")}{GetRealTypeName(type)}" : GetRealPath(type);
+                    string uniqueRelPath = AppendNumberToDuplicatePath(usedPaths, relPath);
+                    string outFile = Path.Combine(outPath, $"{uniqueRelPath}.cs");
+                    return (type, outFile);
+                })
+                .ToList();
+
+            Parallel.ForEach(orderedTypes, item => {
+                writeFile(item.outFile, new[] {item.type});
             });
         }
 
@@ -347,21 +371,40 @@ namespace Il2CppInspector.Outputs
         public HashSet<Assembly> WriteFilesByClassTree(string outPath, bool separateAttributes) {
             usedAssemblyAttributes.Clear();
             var usedAssemblies = new HashSet<Assembly>();
-            var usedPaths = new HashSet<string>();
-            var usedPathsLock = new object();
+            var usedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var orderedTypes = model.Assemblies
+                .OrderBy(a => a.ShortName, StringComparer.Ordinal)
+                .SelectMany(x => x.DefinedTypes)
+                .Where(t => !t.IsNested)
+                .Where(t => !(MustCompile
+                    && t.Name == "Locale" && t.Namespace == string.Empty
+                    && t.BaseType?.FullName == "System.Object"
+                    && t.IsClass && t.IsSealed && t.IsNotPublic && !t.ContainsGenericParameters
+                    && t.DeclaredMembers.Count == t.DeclaredMethods.Count
+                    && t.GetMethods("GetText").Length == t.DeclaredMethods.Count))
+                .OrderBy(t => t.Assembly.ShortName, StringComparer.Ordinal)
+                .ThenBy(t => t.Namespace, StringComparer.Ordinal)
+                .ThenBy(t => GetRealTypeName(t), StringComparer.Ordinal)
+                .ThenBy(t => t.GenericTypeParameters.Length)
+                .ThenBy(t => t.Name, StringComparer.Ordinal)
+                .ThenBy(t => t.Index)
+                .Select(type => {
+                    string relPath = GetRealPath(type);
+                    string asmName = Path.GetFileNameWithoutExtension(type.Assembly.ShortName);
+                    string fullRelPath = Path.Combine(asmName, relPath);
+                    string uniqueFullRelPath = AppendNumberToDuplicatePath(usedPaths, fullRelPath);
+                    string outFile = Path.Combine(outPath, $"{uniqueFullRelPath}.cs");
+                    return (type, outFile);
+                })
+                .ToList();
 
             // Each thread tracks its own list of used assemblies and they are merged as each thread completes
-            Parallel.ForEach(model.Assemblies.SelectMany(x => x.DefinedTypes),
+            Parallel.ForEach(orderedTypes,
                 () => new HashSet<Assembly>(),
-                (type, _, used) => {
-                    string relPath = GetRealPath(type);
-                    string uniqueRelPath;
-                    lock (usedPathsLock) {
-                        uniqueRelPath = AppendNumberToDuplicatePath(usedPaths, relPath);
-                    }
-                    string outFile = Path.Combine(outPath, Path.GetFileNameWithoutExtension(type.Assembly.ShortName), $"{uniqueRelPath}.cs");
-                    if (writeFile(outFile, new[] {type}, outputAssemblyAttributes: !separateAttributes))
-                        used.Add(type.Assembly);
+                (item, _, used) => {
+                    if (writeFile(item.outFile, new[] {item.type}, outputAssemblyAttributes: !separateAttributes))
+                        used.Add(item.type.Assembly);
                     return used;
                 },
                 usedPartition => {
