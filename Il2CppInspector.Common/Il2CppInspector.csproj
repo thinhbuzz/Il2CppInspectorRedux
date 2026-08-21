@@ -1,8 +1,9 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
 	<ImplicitUsings>enable</ImplicitUsings>
+	<Nullable>annotations</Nullable>
 	<LangVersion>preview</LangVersion>
     <AssemblyName>Il2CppInspector.Common</AssemblyName>
     <Authors>Katy Coe</Authors>

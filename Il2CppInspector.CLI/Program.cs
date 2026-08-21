@@ -17,7 +17,6 @@ using Il2CppInspector.Cpp.UnityHeaders;
 using Il2CppInspector.Model;
 using Il2CppInspector.Outputs;
 using Il2CppInspector.Reflection;
-using Assembly = System.Reflection.Assembly;
 
 namespace Il2CppInspector.CLI
 {
@@ -174,9 +173,7 @@ namespace Il2CppInspector.CLI
         private static int Run(Options options) {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
                 // Banner
-                var location = Assembly.GetEntryAssembly().Location;
-                if (location == "") // Single file executables don't have an assembly location
-                    location = Path.Join(AppContext.BaseDirectory, "Il2CppInspector.exe");
+                var location = Environment.ProcessPath ?? Path.Join(AppContext.BaseDirectory, "Il2CppInspector.exe");
 
                 var asmInfo = FileVersionInfo.GetVersionInfo(location);
                 Console.WriteLine(asmInfo.ProductName);
