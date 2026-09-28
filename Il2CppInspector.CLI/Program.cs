@@ -175,7 +175,7 @@ namespace Il2CppInspector.CLI
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) 
             {
                 // Banner
-                var location = Path.Join(AppContext.BaseDirectory, "Il2CppInspector.exe");
+                var location = Environment.ProcessPath ?? Path.Join(AppContext.BaseDirectory, "Il2CppInspector.exe");
 
                 var asmInfo = FileVersionInfo.GetVersionInfo(location);
                 Console.WriteLine(asmInfo.ProductName);

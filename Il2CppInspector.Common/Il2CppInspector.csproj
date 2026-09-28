@@ -1,6 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
 	<ImplicitUsings>enable</ImplicitUsings>
+    <!-- The code base uses nullable annotations (e.g. `Type?`) but nullable
+         warnings are not enabled yet, so only the annotation context is on.
+         This keeps the compiler from reporting CS8632 for every `?`. -->
+    <Nullable>annotations</Nullable>
     <AssemblyName>Il2CppInspector.Common</AssemblyName>
     <Product>Il2CppInspector Shared Library</Product>
     <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);CopyProjectReferencesToPackage</TargetsForTfmSpecificBuildOutput>

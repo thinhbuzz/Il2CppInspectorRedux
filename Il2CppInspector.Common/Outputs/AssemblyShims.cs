@@ -79,6 +79,9 @@ namespace Il2CppInspector.Outputs
         private readonly TypeModel model;
 
         // Our custom attributes
+        private TypeDef customClassAttribute;
+        private TypeDef customMethodAttribute;
+        private TypeDef customFieldAttribute;
         private TypeDef addressAttribute;
         private TypeDef fieldOffsetAttribute;
         private TypeDef staticFieldOffsetAttribute;
@@ -127,6 +130,39 @@ namespace Il2CppInspector.Outputs
 
             // Create our custom attributes for compatibility with Il2CppDumper
             // TODO: New format with numeric values where applicable
+            customClassAttribute = createAttribute("CustomClassAttribute");
+            customClassAttribute.Fields.Add(new FieldDefUser("Namespace", stringField, FieldAttributes.Public));
+            customClassAttribute.Fields.Add(new FieldDefUser("NestedLevel", stringField, FieldAttributes.Public));
+            customClassAttribute.Fields.Add(new FieldDefUser("Name", stringField, FieldAttributes.Public));
+            customClassAttribute.Fields.Add(new FieldDefUser("AccessModifier", stringField, FieldAttributes.Public));
+            customClassAttribute.Fields.Add(new FieldDefUser("Modifier", stringField, FieldAttributes.Public));
+            customClassAttribute.Fields.Add(new FieldDefUser("Parent", stringField, FieldAttributes.Public));
+            customClassAttribute.Fields.Add(new FieldDefUser("Interfaces", stringField, FieldAttributes.Public));
+            customClassAttribute.AddDefaultConstructor(attributeCtorRef);
+
+            customMethodAttribute = createAttribute("CustomMethodAttribute");
+            customMethodAttribute.Fields.Add(new FieldDefUser("NestedLevel", stringField, FieldAttributes.Public));
+            customMethodAttribute.Fields.Add(new FieldDefUser("ClassName", stringField, FieldAttributes.Public));
+            customMethodAttribute.Fields.Add(new FieldDefUser("Type", stringField, FieldAttributes.Public));
+            customMethodAttribute.Fields.Add(new FieldDefUser("TypeName", stringField, FieldAttributes.Public));
+            customMethodAttribute.Fields.Add(new FieldDefUser("AccessModifier", stringField, FieldAttributes.Public));
+            customMethodAttribute.Fields.Add(new FieldDefUser("Modifier", stringField, FieldAttributes.Public));
+            customMethodAttribute.Fields.Add(new FieldDefUser("Name", stringField, FieldAttributes.Public));
+            customMethodAttribute.Fields.Add(new FieldDefUser("ReturnType", stringField, FieldAttributes.Public));
+            customMethodAttribute.Fields.Add(new FieldDefUser("ParameterTypes", stringField, FieldAttributes.Public));
+            customMethodAttribute.Fields.Add(new FieldDefUser("Slot", stringField, FieldAttributes.Public));
+            customMethodAttribute.AddDefaultConstructor(attributeCtorRef);
+
+            customFieldAttribute = createAttribute("CustomFieldAttribute");
+            customFieldAttribute.Fields.Add(new FieldDefUser("NestedLevel", stringField, FieldAttributes.Public));
+            customFieldAttribute.Fields.Add(new FieldDefUser("ClassName", stringField, FieldAttributes.Public));
+            customFieldAttribute.Fields.Add(new FieldDefUser("Offset", stringField, FieldAttributes.Public));
+            customFieldAttribute.Fields.Add(new FieldDefUser("AccessModifier", stringField, FieldAttributes.Public));
+            customFieldAttribute.Fields.Add(new FieldDefUser("Modifier", stringField, FieldAttributes.Public));
+            customFieldAttribute.Fields.Add(new FieldDefUser("Name", stringField, FieldAttributes.Public));
+            customFieldAttribute.Fields.Add(new FieldDefUser("Type", stringField, FieldAttributes.Public));
+            customFieldAttribute.AddDefaultConstructor(attributeCtorRef);
+
             addressAttribute = createAttribute("AddressAttribute");
             addressAttribute.Fields.Add(new FieldDefUser("RVA", stringField, FieldAttributes.Public));
             addressAttribute.Fields.Add(new FieldDefUser("Offset", stringField, FieldAttributes.Public));
@@ -294,11 +330,22 @@ namespace Il2CppInspector.Outputs
             var events = type.DeclaredEvents.SelectMany(p => new[] { p.AddMethod, p.RemoveMethod, p.RaiseMethod }).Where(m => m != null);
 
             foreach (var method in type.DeclaredConstructors.AsEnumerable<MethodBase>().Concat(type.DeclaredMethods).Except(props).Except(events))
-                AddMethod(module, mType, method);
-
+                AddMethod(module, mType, method, "Normal");
             // Add token attribute
             if (type.Definition.IsValid)
                 mType.AddAttribute(module, tokenAttribute, ("Token", $"0x{type.MetadataToken:X8}"));
+
+            var args = new List<(string, object)> {
+                ("Namespace", type.Namespace),
+                ("NestedLevel", type.FullName.Count(c => c == '+').ToString()),
+                ("Name", type.Name),
+                ("AccessModifier", type.GetAccessModifierStringRaw()),
+                ("Modifier", string.Join(" ", type.GetModifierStringRaw())),
+                ("Parent", type.BaseType == null ? "" : GetFullNameWithGenerics(type.BaseType)),
+                ("Interfaces", type.ImplementedInterfaces == null ? "" : string.Join("|", type.ImplementedInterfaces.Select(i => GetFullNameWithGenerics(i)))),
+            };
+
+            mType.AddAttribute(module, customClassAttribute, args.ToArray());
 
             if (model.Package.Version >= MetadataVersions.V1040)
             {
@@ -354,6 +401,16 @@ namespace Il2CppInspector.Outputs
 
             // Add token attribute
             mField.AddAttribute(module, tokenAttribute, ("Token", $"0x{field.MetadataToken:X8}"));
+            var args = new List<(string, object)> {
+                ("NestedLevel", field.DeclaringType.FullName.Count(c => c == '+').ToString()),
+                ("ClassName", field.DeclaringType.Name),
+                ("Offset", $"0x{field.Offset:X2}"),
+                ("AccessModifier", field.GetAccessModifierStringRaw()),
+                ("Modifier", string.Join(" ", field.GetModifierStringRaw())),
+                ("Name", field.Name),
+                ("Type", GetFullNameWithGenerics(field.FieldType)),
+            };
+            mField.AddAttribute(module, customFieldAttribute, args.ToArray());
 
             // Add custom attribute attributes
             foreach (var ca in field.CustomAttributes)
@@ -379,8 +436,8 @@ namespace Il2CppInspector.Outputs
 
             var mProp = new PropertyDefUser(prop.Name, s, (PropertyAttributes) prop.Attributes);
 
-            mProp.GetMethod = AddMethod(module, mType, prop.GetMethod);
-            mProp.SetMethod = AddMethod(module, mType, prop.SetMethod);
+            mProp.GetMethod = AddMethod(module, mType, prop.GetMethod, "Getter", prop.Name);
+            mProp.SetMethod = AddMethod(module, mType, prop.SetMethod, "Setter", prop.Name);
 
             // Add token attribute
             // Generic properties and constructed properties (from disperate get/set methods) have no definition
@@ -400,9 +457,9 @@ namespace Il2CppInspector.Outputs
         private EventDef AddEvent(ModuleDef module, TypeDef mType, EventInfo evt) {
             var mEvent = new EventDefUser(evt.Name, GetTypeRef(module, evt.EventHandlerType), (EventAttributes) evt.Attributes);
 
-            mEvent.AddMethod = AddMethod(module, mType, evt.AddMethod);
-            mEvent.RemoveMethod = AddMethod(module, mType, evt.RemoveMethod);
-            mEvent.InvokeMethod = AddMethod(module, mType, evt.RaiseMethod);
+            mEvent.AddMethod = AddMethod(module, mType, evt.AddMethod, "EventAdd", evt.Name);
+            mEvent.RemoveMethod = AddMethod(module, mType, evt.RemoveMethod, "EventRemove", evt.Name);
+            mEvent.InvokeMethod = AddMethod(module, mType, evt.RaiseMethod, "EventInvoke", evt.Name);
 
             // Add token attribute
             mEvent.AddAttribute(module, tokenAttribute, ("Token", $"0x{evt.MetadataToken:X8}"));
@@ -417,7 +474,8 @@ namespace Il2CppInspector.Outputs
         }
 
         // Add a method to a type
-        private MethodDef AddMethod(ModuleDef module, TypeDef mType, MethodBase method) {
+        private MethodDef AddMethod(ModuleDef module, TypeDef mType, MethodBase method, string methodType, string methodTypeName = "")
+        {
             // Undefined method
             if (method == null)
                 return null;
@@ -499,18 +557,41 @@ namespace Il2CppInspector.Outputs
             // Add token attribute
             mMethod.AddAttribute(module, tokenAttribute, ("Token", $"0x{method.MetadataToken:X8}"));
 
-            // Add method pointer attribute
-            if (method.VirtualAddress.HasValue) {
-                var args = new List<(string,object)> {
-                        ("RVA", (method.VirtualAddress.Value.Start - model.Package.BinaryImage.ImageBase).ToAddressString()),
-                        ("Offset", $"0x{model.Package.BinaryImage.MapVATR(method.VirtualAddress.Value.Start):X}"),
-                        ("VA", method.VirtualAddress.Value.Start.ToAddressString())
-                    };
-                if (method.Definition.Slot != ushort.MaxValue)
-                    args.Add(("Slot", method.Definition.Slot.ToString()));
-
-                mMethod.AddAttribute(module, addressAttribute, args.ToArray());
+            var args = new List<(string, object)> {};
+            if (method is MethodInfo)
+            {
+                var returnType = (method as MethodInfo).ReturnType;
+                args = new List<(string, object)> {
+                    ("NestedLevel", method.DeclaringType.FullName.Count(c => c == '+').ToString()),
+                    ("ClassName", method.DeclaringType.Name),
+                    ("Type", methodType),
+                    ("TypeName", methodTypeName),
+                    ("AccessModifier", method.GetAccessModifierStringRaw()),
+                    ("Modifier", string.Join(" ", method.GetModifierStringRaw())),
+                    ("Name", method.Name),
+                    ("ReturnType", GetFullNameWithGenerics(returnType)),
+                    ("ParameterTypes", string.Join("|", method.DeclaredParameters.Select(p => GetFullNameWithGenerics(p.ParameterType)))),
+                    ("Slot", method.Definition.Slot != ushort.MaxValue ? method.Definition.Slot.ToString() : "0")
+                };
             }
+            else
+            if (method is ConstructorInfo)
+            {
+                args = new List<(string, object)> {
+                    ("NestedLevel", method.DeclaringType.FullName.Count(c => c == '+').ToString()),
+                    ("ClassName", method.DeclaringType.Name),
+                    ("Type", "Constructor"),
+                    ("TypeName", ""),
+                    ("AccessModifier", method.GetAccessModifierStringRaw()),
+                    ("Modifier", string.Join(" ", method.GetModifierStringRaw())),
+                    ("Name", method.Name),
+                    ("ReturnType", ""),
+                    ("ParameterTypes", string.Join("|", method.DeclaredParameters.Select(p => GetFullNameWithGenerics(p.ParameterType)))),
+                    ("Slot", method.Definition.Slot != ushort.MaxValue ? method.Definition.Slot.ToString() : "0")
+                };
+            }
+
+            mMethod.AddAttribute(module, customMethodAttribute, args.ToArray());
 
             // Add custom attribute attributes
             foreach (var ca in method.CustomAttributes)
@@ -749,6 +830,23 @@ namespace Il2CppInspector.Outputs
 
             static bool IsAttributeType(TypeInfo type) =>
                 type.FullName == "System.Attribute" || (type.BaseType != null && IsAttributeType(type.BaseType));
+        }
+
+        private string GetFullNameWithGenerics(TypeInfo type)
+        {
+            var fullName = (type.IsGenericParameter || type.Namespace == "") ? "" : type.Namespace + ".";
+            fullName += type.IsGenericType ? type.BaseName : type.Name;
+            if (type.IsArray && !fullName.EndsWith("[]"))
+            {
+                fullName += "[]";
+            }
+            if (type.IsGenericType && type.GenericTypeArguments.Length > 0)
+            {
+                fullName += "<";
+                fullName += string.Join(", ", type.GenericTypeArguments.Select(p => GetFullNameWithGenerics(p)));
+                fullName += ">";
+            }
+            return fullName;
         }
     }
 }

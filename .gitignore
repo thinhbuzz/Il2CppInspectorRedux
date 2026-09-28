@@ -271,3 +271,6 @@ paket-files/
 
 # for dotnet-tools.json
 .config
+
+/*-arm64
+/*-x64

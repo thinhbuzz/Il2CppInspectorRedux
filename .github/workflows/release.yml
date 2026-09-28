@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: ./artifacts/
       - name: Create artifact ZIPs
@@ -24,9 +24,11 @@ jobs:
       - name: Delete unzipped artifact folders
         shell: pwsh
         working-directory: ./artifacts
-        run: 'Get-ChildItem -Path . -Directory | ForEach-Object { Remove-Item $_.Name -Recurse }'
+        # -Force is required: the CLI artifacts contain hidden files (bun-builder/.gitignore),
+        # and Remove-Item refuses to recurse into hidden/read-only items without it.
+        run: 'Get-ChildItem -Path . -Directory -Force | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }'
       - name: Make release
-        uses: softprops/action-gh-release@v2.4.2
+        uses: softprops/action-gh-release@v3
         with:
           files: ./artifacts/**/*
           name: Il2CppInspectorRedux ${{ github.ref_name }}

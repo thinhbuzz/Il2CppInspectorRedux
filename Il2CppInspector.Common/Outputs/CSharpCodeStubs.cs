@@ -16,6 +16,10 @@ using Assembly = Il2CppInspector.Reflection.Assembly;
 using CustomAttributeData = Il2CppInspector.Reflection.CustomAttributeData;
 using MethodInfo = Il2CppInspector.Reflection.MethodInfo;
 using TypeInfo = Il2CppInspector.Reflection.TypeInfo;
+using MethodBase = Il2CppInspector.Reflection.MethodBase;
+using FieldInfo = Il2CppInspector.Reflection.FieldInfo;
+using PropertyInfo = Il2CppInspector.Reflection.PropertyInfo;
+using EventInfo = Il2CppInspector.Reflection.EventInfo;
 
 namespace Il2CppInspector.Outputs
 {
@@ -42,6 +46,126 @@ namespace Il2CppInspector.Outputs
         // Assembly attributes we have already emitted
         private HashSet<CustomAttributeData> usedAssemblyAttributes = new HashSet<CustomAttributeData>();
         private readonly object usedAssemblyAttributesLock = new object();
+
+        // Generate detailed attribute information similar to AssemblyShims
+        private string GenerateCustomClassAttributeInfo(TypeInfo type, string prefix = "")
+        {
+            if (SuppressMetadata)
+                return "";
+
+            var sb = new StringBuilder();
+            sb.Append($"{prefix}[CustomClass(Namespace = \"{type.Namespace}\", ");
+            sb.Append($"NestedLevel = \"{type.FullName.Count(c => c == '+')}\", ");
+            sb.Append($"Name = \"{EscapeString(type.Name)}\", ");
+            sb.Append($"AccessModifier = \"{EscapeString(type.GetAccessModifierStringRaw())}\", ");
+            sb.Append($"Modifier = \"{EscapeString(string.Join(" ", type.GetModifierStringRaw()))}\", ");
+            sb.Append($"Parent = \"{EscapeString(type.BaseType == null ? "" : GetFullNameWithGenerics(type.BaseType))}\", ");
+            sb.Append($"Interfaces = \"{EscapeString(type.ImplementedInterfaces?.Any() == true ? string.Join("|", type.ImplementedInterfaces.Select(i => GetFullNameWithGenerics(i))) : "")}\", ");
+            sb.Remove(sb.Length - 2, 2); // Remove trailing ", "
+            sb.Append(")]\n");
+            return sb.ToString();
+        }
+
+        private string GenerateCustomMethodAttributeInfo(MethodBase method, string methodType, string methodTypeName = "", string prefix = "")
+        {
+            if (SuppressMetadata)
+                return "";
+
+            var sb = new StringBuilder();
+            sb.Append($"{prefix}[CustomMethod(NestedLevel = \"{method.DeclaringType.FullName.Count(c => c == '+')}\", ");
+            sb.Append($"ClassName = \"{EscapeString(method.DeclaringType.Name)}\", ");
+            sb.Append($"Type = \"{EscapeString(methodType)}\", ");
+            sb.Append($"TypeName = \"{EscapeString(methodTypeName)}\", ");
+            sb.Append($"AccessModifier = \"{EscapeString(method.GetAccessModifierStringRaw())}\", ");
+            sb.Append($"Modifier = \"{EscapeString(string.Join(" ", method.GetModifierStringRaw()))}\", ");
+            sb.Append($"Name = \"{EscapeString(method.Name)}\", ");
+            if (method is MethodInfo mi)
+                sb.Append($"ReturnType = \"{EscapeString(GetFullNameWithGenerics(mi.ReturnType))}\", ");
+            else
+                sb.Append($"ReturnType = \"\", ");
+            sb.Append($"ParameterTypes = \"{EscapeString(string.Join("|", method.DeclaredParameters.Select(p => GetFullNameWithGenerics(p.ParameterType))))}\", ");
+            sb.Append($"Slot = \"{(method.Definition.Slot != ushort.MaxValue ? method.Definition.Slot.ToString() : "0")}\"");
+            sb.Append(")]\n");
+            return sb.ToString();
+        }
+
+        private string GenerateCustomFieldAttributeInfo(FieldInfo field, string prefix = "", Scope scope = null)
+        {
+            if (SuppressMetadata)
+                return "";
+
+            var sb = new StringBuilder();
+            sb.Append($"{prefix}[CustomField(NestedLevel = \"{field.DeclaringType.FullName.Count(c => c == '+')}\", ");
+            sb.Append($"ClassName = \"{EscapeString(field.DeclaringType.Name)}\", ");
+            sb.Append($"Offset = \"0x{field.Offset:X2}\", ");
+            sb.Append($"AccessModifier = \"{EscapeString(field.GetAccessModifierStringRaw())}\", ");
+            sb.Append($"Modifier = \"{EscapeString(string.Join(" ", field.GetModifierStringRaw()))}\", ");
+            sb.Append($"Name = \"{EscapeString(field.Name)}\", ");
+            sb.Append($"Type = \"{EscapeString(GetFullNameWithGenerics(field.FieldType))}\"");
+            if (field.HasDefaultValue) {
+                // Enum constants should retain their raw numeric literal instead of symbolic enum names.
+                var valueText = field.DeclaringType.IsEnum
+                    ? field.DefaultValue?.ToString()
+                    : scope != null
+                        ? field.GetDefaultValueString(scope)
+                        : field.DefaultValue?.ToString();
+                sb.Append($", Value = \"{EscapeString(valueText)}\"");
+            }
+            var originalNameAttributeData = field.CustomAttributes
+            .FirstOrDefault(a => a.AttributeType != null && a.AttributeType.Name.StartsWith("OriginalName"));
+
+            if (originalNameAttributeData != null && originalNameAttributeData.CtorInfo != null && originalNameAttributeData.CtorInfo.Arguments.Any())
+            {
+                sb.Append($", OriginalName = \"{EscapeString(originalNameAttributeData.CtorInfo.Arguments[0].Value?.ToString())}\"");
+            }
+
+            sb.Append(")]\n");
+            return sb.ToString();
+        }
+
+        private string GenerateAttributeAttributeInfo(CustomAttributeData ca, string prefix = "")
+        {
+            if (SuppressMetadata)
+                return "";
+
+            var sb = new StringBuilder();
+            sb.Append($"{prefix}[Attribute(Name = \"{EscapeString(ca.AttributeType.Name)}\"");
+            if (ca.VirtualAddress.Start != 0)
+            {
+                sb.Append($", RVA = \"{(ca.VirtualAddress.Start - model.Package.BinaryImage.ImageBase).ToAddressString()}\"");
+                sb.Append($", Offset = \"0x{model.Package.BinaryImage.MapVATR(ca.VirtualAddress.Start):X}\"");
+            }
+            sb.Append(")]\n");
+            return sb.ToString();
+        }
+
+        private string GetFullNameWithGenerics(TypeInfo type)
+        {
+            if (type == null)
+                return "";
+
+            var fullName = (type.IsGenericParameter || type.Namespace == "") ? "" : type.Namespace + ".";
+            fullName += type.IsGenericType ? type.BaseName : type.Name;
+            if (type.IsArray && !fullName.EndsWith("[]"))
+            {
+                fullName += "[]";
+            }
+            if (type.IsGenericType && type.GenericTypeArguments.Length > 0)
+            {
+                fullName += "<";
+                fullName += string.Join(", ", type.GenericTypeArguments.Select(p => GetFullNameWithGenerics(p)));
+                fullName += ">";
+            }
+            return fullName;
+        }
+
+        private string EscapeString(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+                return input;
+
+            return input.Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t");
+        }
 
         public CSharpCodeStubs(TypeModel model) => this.model = model;
 
@@ -79,36 +203,220 @@ namespace Il2CppInspector.Outputs
             });
         }
 
-        public void WriteFilesByClass(string outPath, bool flattenHierarchy) {
+        // get real type name without generics
+        private string GetRealTypeName(TypeInfo type) {
+            var name = type.Name;
+            // Remove backtick notation (e.g., `2)
+            name = Regex.Replace(name, "`[0-9]+", "");
+            // Remove generic parameter names in brackets (e.g., [K,V])
+            name = Regex.Replace(name, @"\[[^\]]+\]", "");
+            return name;
+        }
+
+        // Find the default namespace for an assembly using similar logic to DefaultNamespaceFinder
+        private string FindDefaultNamespace(Reflection.Assembly assembly)
+        {
+            var namespaces = assembly.DefinedTypes
+                .Select(t => t.Namespace)
+                .Where(ns => !string.IsNullOrEmpty(ns) && ns != "XamlGeneratedNamespace")
+                .Distinct()
+                .ToArray();
+
+            if (!namespaces.Any())
+                return string.Empty;
+
+            // Get assembly name without extension
+            var assemblyName = Path.GetFileNameWithoutExtension(assembly.ShortName);
+
+            // Group namespaces by first part
+            var namespaceGroups = namespaces
+                .GroupBy(ns => GetFirstNamespacePart(ns))
+                .Select(g => new {
+                    FirstPart = g.Key,
+                    CommonPrefix = GetCommonNamespacePrefix(g.ToArray()),
+                    Namespaces = g.ToArray()
+                })
+                .ToList();
+
+            if (namespaceGroups.Count == 0)
+                return string.Empty;
+
+            if (namespaceGroups.Count == 1)
+                return namespaceGroups[0].CommonPrefix;
+
+            // Try to find a namespace group that matches or starts with the assembly name
+            var bestMatch = namespaceGroups.FirstOrDefault(g => 
+                assemblyName.Equals(g.CommonPrefix, StringComparison.OrdinalIgnoreCase) || 
+                g.CommonPrefix.StartsWith(assemblyName + ".", StringComparison.OrdinalIgnoreCase));
+
+            return bestMatch?.CommonPrefix ?? string.Empty;
+        }
+
+        private string GetFirstNamespacePart(string ns)
+        {
+            int dotIndex = ns.IndexOf('.');
+            return dotIndex < 0 ? ns : ns.Substring(0, dotIndex);
+        }
+
+        private string GetCommonNamespacePrefix(string[] namespaces)
+        {
+            if (namespaces.Length == 0)
+                return string.Empty;
+
+            if (namespaces.Length == 1)
+                return namespaces[0];
+
+            string commonPrefix = namespaces[0];
+            for (int i = 1; i < namespaces.Length; i++)
+            {
+                commonPrefix = GetCommonPrefix(commonPrefix, namespaces[i]);
+            }
+
+            return commonPrefix;
+        }
+
+        private string GetCommonPrefix(string a, string b)
+        {
+            var partsA = a.Split('.');
+            var partsB = b.Split('.');
+            var commonParts = new List<string>();
+
+            int minLength = Math.Min(partsA.Length, partsB.Length);
+            for (int i = 0; i < minLength; i++)
+            {
+                if (string.Equals(partsA[i], partsB[i], StringComparison.Ordinal))
+                    commonParts.Add(partsA[i]);
+                else
+                    break;
+            }
+
+            return string.Join(".", commonParts);
+        }
+
+        // get real path using default namespace finder
+        private string GetRealPath(TypeInfo type)
+        {
+            string defaultNamespace = FindDefaultNamespace(type.Assembly);
+            string namespaceAsPath;
+
+            if (!string.IsNullOrEmpty(defaultNamespace) && type.Namespace.StartsWith(defaultNamespace))
+            {
+                // Remove the default namespace prefix to get the relative namespace
+                if (type.Namespace.Length > defaultNamespace.Length && type.Namespace[defaultNamespace.Length] == '.')
+                    namespaceAsPath = type.Namespace.Substring(defaultNamespace.Length + 1);
+                else if (type.Namespace == defaultNamespace)
+                    namespaceAsPath = string.Empty;
+                else
+                    namespaceAsPath = type.Namespace;
+            }
+            else
+            {
+                namespaceAsPath = type.Namespace;
+            }
+
+            string relPath = $"{namespaceAsPath}{(namespaceAsPath.Length > 0 ? "." : "")}{GetRealTypeName(type)}";
+            return Path.Combine(relPath.Split('.'));
+        }
+
+        public void WriteFilesByClass(string outPath, bool flattenHierarchy)
+        {
             usedAssemblyAttributes.Clear();
-            Parallel.ForEach(model.Assemblies.SelectMany(x => x.DefinedTypes), type => {
-                string relPath = $"{type.Namespace}{(type.Namespace.Length > 0 ? "." : "")}{Regex.Replace(type.Name, "`[0-9]", "")}";
-                writeFile(Path.Combine(outPath, flattenHierarchy ? relPath : Path.Combine(relPath.Split('.')) + ".cs"), new[] {type});
+            var usedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var orderedTypes = model.Assemblies
+                .OrderBy(a => a.ShortName, StringComparer.Ordinal)
+                .SelectMany(x => x.DefinedTypes)
+                .Where(t => !t.IsNested)
+                .Where(t => !(MustCompile
+                    && t.Name == "Locale" && t.Namespace == string.Empty
+                    && t.BaseType?.FullName == "System.Object"
+                    && t.IsClass && t.IsSealed && t.IsNotPublic && !t.ContainsGenericParameters
+                    && t.DeclaredMembers.Count == t.DeclaredMethods.Count
+                    && t.GetMethods("GetText").Length == t.DeclaredMethods.Count))
+                .OrderBy(t => t.Assembly.ShortName, StringComparer.Ordinal)
+                .ThenBy(t => t.Namespace, StringComparer.Ordinal)
+                .ThenBy(t => GetRealTypeName(t), StringComparer.Ordinal)
+                .ThenBy(t => t.GenericTypeParameters.Length)
+                .ThenBy(t => t.Name, StringComparer.Ordinal)
+                .ThenBy(t => t.Index)
+                .Select(type => {
+                    string relPath = flattenHierarchy ? $"{type.Namespace}{(type.Namespace.Length > 0 ? "." : "")}{GetRealTypeName(type)}" : GetRealPath(type);
+                    string uniqueRelPath = AppendNumberToDuplicatePath(usedPaths, relPath);
+                    string outFile = Path.Combine(outPath, $"{uniqueRelPath}.cs");
+                    return (type, outFile);
+                })
+                .ToList();
+
+            Parallel.ForEach(orderedTypes, item => {
+                writeFile(item.outFile, new[] {item.type});
             });
+        }
+
+        private string AppendNumberToDuplicatePath(HashSet<string> paths, string path)
+        {
+            if (!paths.Contains(path))
+            {
+                paths.Add(path);
+                return path;
+            }
+
+            int i = 2;
+            string numberedPath;
+            do {
+                numberedPath = path + $".{i}";
+                i++;
+            } while (paths.Contains(numberedPath));
+
+            paths.Add(numberedPath);
+            return numberedPath;
         }
 
         public HashSet<Assembly> WriteFilesByClassTree(string outPath, bool separateAttributes) {
             usedAssemblyAttributes.Clear();
             var usedAssemblies = new HashSet<Assembly>();
+            var usedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var orderedTypes = model.Assemblies
+                .OrderBy(a => a.ShortName, StringComparer.Ordinal)
+                .SelectMany(x => x.DefinedTypes)
+                .Where(t => !t.IsNested)
+                .Where(t => !(MustCompile
+                    && t.Name == "Locale" && t.Namespace == string.Empty
+                    && t.BaseType?.FullName == "System.Object"
+                    && t.IsClass && t.IsSealed && t.IsNotPublic && !t.ContainsGenericParameters
+                    && t.DeclaredMembers.Count == t.DeclaredMethods.Count
+                    && t.GetMethods("GetText").Length == t.DeclaredMethods.Count))
+                .OrderBy(t => t.Assembly.ShortName, StringComparer.Ordinal)
+                .ThenBy(t => t.Namespace, StringComparer.Ordinal)
+                .ThenBy(t => GetRealTypeName(t), StringComparer.Ordinal)
+                .ThenBy(t => t.GenericTypeParameters.Length)
+                .ThenBy(t => t.Name, StringComparer.Ordinal)
+                .ThenBy(t => t.Index)
+                .Select(type => {
+                    string relPath = GetRealPath(type);
+                    string asmName = Path.GetFileNameWithoutExtension(type.Assembly.ShortName);
+                    string fullRelPath = Path.Combine(asmName, relPath);
+                    string uniqueFullRelPath = AppendNumberToDuplicatePath(usedPaths, fullRelPath);
+                    string outFile = Path.Combine(outPath, $"{uniqueFullRelPath}.cs");
+                    return (type, outFile);
+                })
+                .ToList();
 
             // Each thread tracks its own list of used assemblies and they are merged as each thread completes
-            Parallel.ForEach(model.Assemblies.SelectMany(x => x.DefinedTypes),
+            Parallel.ForEach(orderedTypes,
                 () => new HashSet<Assembly>(),
-                (type, _, used) => {
-                    string relPath = Path.Combine($"{type.Namespace}{(type.Namespace.Length > 0 ? "." : "")}{Regex.Replace(type.Name, "`[0-9]", "")}".Split('.'));
-                    if (writeFile(Path.Combine(outPath, Path.GetFileNameWithoutExtension(type.Assembly.ShortName), $"{relPath}.cs"), new[] {type}, outputAssemblyAttributes: !separateAttributes))
-                        used.Add(type.Assembly);
+                (item, _, used) => {
+                    if (writeFile(item.outFile, new[] {item.type}, outputAssemblyAttributes: !separateAttributes))
+                        used.Add(item.type.Assembly);
                     return used;
                 },
                 usedPartition => {
                     lock (usedAssemblies) usedAssemblies.UnionWith(usedPartition);
                 }
             );
-
             if (separateAttributes && usedAssemblies.Any() && lastException == null)
                 foreach (var asm in usedAssemblies)
                     File.WriteAllText(Path.Combine(outPath, Path.GetFileNameWithoutExtension(asm.ShortName), "AssemblyInfo.cs"), generateAssemblyInfo(new [] {asm}));
-
             return usedAssemblies;
         }
 
@@ -209,8 +517,8 @@ namespace Il2CppInspector.Outputs
                 () => new Dictionary<TypeInfo, StringBuilder>(),
                 (type, _, dict) => {
                     // Skip namespace and any children if requested
-                    if (ExcludedNamespaces?.Any(x => x == type.Namespace || type.Namespace.StartsWith(x + ".")) ?? false)
-                        return dict;
+                    // if (ExcludedNamespaces?.Any(x => x == type.Namespace || type.Namespace.StartsWith(x + ".")) ?? false)
+                    //     return dict;
 
                     // Don't output global::Locale if desired
                     if (MustCompile
@@ -304,7 +612,7 @@ namespace Il2CppInspector.Outputs
             }
 
             // Sanitize leafname (might be class name with invalid characters)
-            var leafname = string.Join("_", Path.GetFileName(outFile).Split(Path.GetInvalidFileNameChars()));
+            var leafname = string.Join("-", Path.GetFileName(outFile).Split(Path.GetInvalidFileNameChars()));
 
             outFile = Path.Combine(dir, leafname);
 
@@ -393,6 +701,9 @@ namespace Il2CppInspector.Outputs
                     if (MustCompile && field.GetCustomAttributes(CGAttribute).Any())
                         continue;
 
+                    // Generate custom field attribute info
+                    sb.Append(GenerateCustomFieldAttributeInfo(field, prefix + "\t", scope));
+
                     if (field.IsNotSerialized)
                         sb.Append(prefix + "\t[NonSerialized]\n");
 
@@ -402,6 +713,11 @@ namespace Il2CppInspector.Outputs
                     // Attributes
                     sb.Append(field.CustomAttributes.Where(a => a.AttributeType.FullName != FBAttribute).OrderBy(a => a.AttributeType.Name)
                         .ToString(scope, prefix + "\t", emitPointer: !SuppressMetadata, mustCompile: MustCompile));
+
+                    // Add individual attribute info
+                    foreach (var ca in field.CustomAttributes.Where(a => a.AttributeType.FullName != FBAttribute))
+                        sb.Append(GenerateAttributeAttributeInfo(ca, prefix + "\t"));
+
                     sb.Append(prefix + "\t");
                     sb.Append(field.GetModifierString());
 
@@ -438,9 +754,20 @@ namespace Il2CppInspector.Outputs
             sb = new StringBuilder();
             var hasIndexer = false;
             foreach (var prop in type.DeclaredProperties) {
+
+                // Generate custom method attribute info for getter and setter
+                if (prop.GetMethod != null)
+                    sb.Append(GenerateCustomMethodAttributeInfo(prop.GetMethod, "Getter", prop.Name, prefix + "\t"));
+                if (prop.SetMethod != null)
+                    sb.Append(GenerateCustomMethodAttributeInfo(prop.SetMethod, "Setter", prop.Name, prefix + "\t"));
+
                 // Attributes
                 sb.Append(prop.CustomAttributes.OrderBy(a => a.AttributeType.Name)
                     .ToString(scope, prefix + "\t", emitPointer: !SuppressMetadata, mustCompile: MustCompile));
+
+                // Add individual attribute info
+                foreach (var ca in prop.CustomAttributes)
+                    sb.Append(GenerateAttributeAttributeInfo(ca, prefix + "\t"));
 
                 // The access mask enum values go from 1 (private) to 6 (public) in order from most to least restrictive
                 var getAccess = (prop.GetMethod?.Attributes ?? 0) & MethodAttributes.MemberAccessMask;
@@ -494,9 +821,21 @@ namespace Il2CppInspector.Outputs
             // Events
             sb = new StringBuilder();
             foreach (var evt in type.DeclaredEvents) {
+                // Generate custom method attribute info for event methods
+                if (evt.AddMethod != null)
+                    sb.Append(GenerateCustomMethodAttributeInfo(evt.AddMethod, "EventAdd", evt.Name, prefix + "\t"));
+                if (evt.RemoveMethod != null)
+                    sb.Append(GenerateCustomMethodAttributeInfo(evt.RemoveMethod, "EventRemove", evt.Name, prefix + "\t"));
+                if (evt.RaiseMethod != null)
+                    sb.Append(GenerateCustomMethodAttributeInfo(evt.RaiseMethod, "EventInvoke", evt.Name, prefix + "\t"));
+
                 // Attributes
                 sb.Append(evt.CustomAttributes.OrderBy(a => a.AttributeType.Name)
                     .ToString(scope, prefix + "\t", emitPointer: !SuppressMetadata, mustCompile: MustCompile));
+
+                // Add individual attribute info
+                foreach (var ca in evt.CustomAttributes)
+                    sb.Append(GenerateAttributeAttributeInfo(ca, prefix + "\t"));
 
                 string modifiers = evt.AddMethod?.GetModifierString();
                 sb.Append($"{prefix}\t{modifiers}event {evt.EventHandlerType.GetScopedCSharpName(scope)} {evt.CSharpName}");
@@ -531,9 +870,16 @@ namespace Il2CppInspector.Outputs
                 sb.Append($"{prefix}\t{(type.IsAbstract? "protected" : "public")} {type.CSharpBaseName}() {{}} // Dummy constructor\n");
 
             foreach (var method in type.DeclaredConstructors) {
+                // Generate custom method attribute info
+                sb.Append(GenerateCustomMethodAttributeInfo(method, "Constructor", "", prefix + "\t"));
+
                 // Attributes
                 sb.Append(method.CustomAttributes.OrderBy(a => a.AttributeType.Name)
                     .ToString(scope, prefix + "\t", emitPointer: !SuppressMetadata, mustCompile: MustCompile));
+
+                // Add individual attribute info
+                foreach (var ca in method.CustomAttributes)
+                    sb.Append(GenerateAttributeAttributeInfo(ca, prefix + "\t"));
 
                 sb.Append($"{prefix}\t{method.GetModifierString()}{method.DeclaringType.CSharpBaseName}{method.GetTypeParametersString(scope)}");
                 sb.Append($"({method.GetParametersString(scope, !SuppressMetadata)})");
@@ -586,6 +932,9 @@ namespace Il2CppInspector.Outputs
             // Type declaration
             sb = new StringBuilder();
 
+            // Generate custom class attribute info
+            sb.Append(GenerateCustomClassAttributeInfo(type, prefix));
+
             if (type.IsImport)
                 sb.Append(prefix + "[ComImport]\n");
             if (type.IsSerializable)
@@ -595,6 +944,10 @@ namespace Il2CppInspector.Outputs
             // See https://docs.microsoft.com/en-us/dotnet/api/system.reflection.defaultmemberattribute?view=netframework-4.8
             sb.Append(type.CustomAttributes.Where(a => (a.AttributeType.FullName != DMAttribute || !hasIndexer) && a.AttributeType.FullName != ExtAttribute)
                                             .OrderBy(a => a.AttributeType.Name).ToString(scope, prefix, emitPointer: !SuppressMetadata, mustCompile: MustCompile));
+
+            // Add individual attribute info
+            foreach (var ca in type.CustomAttributes.Where(a => (a.AttributeType.FullName != DMAttribute || !hasIndexer) && a.AttributeType.FullName != ExtAttribute))
+                sb.Append(GenerateAttributeAttributeInfo(ca, prefix));
 
             // Roll-up multicast delegates to use the 'delegate' syntactic sugar
             if (type.IsClass && type.IsSealed && type.BaseType?.FullName == "System.MulticastDelegate") {
@@ -637,8 +990,17 @@ namespace Il2CppInspector.Outputs
 
             // Enumeration
             if (type.IsEnum) {
-                sb.AppendJoin(",\n", type.GetEnumNames().Zip(type.GetEnumValues().OfType<object>(),
-                              (k, v) => new { k, v }).OrderBy(x => x.v).Select(x => $"{prefix}\t{x.k} = {x.v}"));
+                var enumFieldsByName = type.DeclaredFields.ToDictionary(f => f.Name);
+                var enumValues = type.GetEnumNames()
+                    .Zip(type.GetEnumValues().OfType<object>(), (k, v) => new { k, v })
+                    .OrderBy(x => x.v)
+                    .Select(x => {
+                        enumFieldsByName.TryGetValue(x.k, out var field);
+                        var customFieldAttribute = field != null? GenerateCustomFieldAttributeInfo(field, prefix + "\t", scope) : string.Empty;
+                        return $"{customFieldAttribute}{prefix}\t{x.k} = {x.v}";
+                    });
+
+                sb.AppendJoin(",\n", enumValues);
                 sb.Append("\n");
             }
 
@@ -656,10 +1018,17 @@ namespace Il2CppInspector.Outputs
             if (MustCompile && method.GetCustomAttributes(CGAttribute).Any())
                 return writer;
 
+            // Generate custom method attribute info
+            writer.Append(GenerateCustomMethodAttributeInfo(method, "Normal", "", prefix + "\t"));
+
             // Attributes
             writer.Append(method.CustomAttributes.Where(a => a.AttributeType.FullName != ExtAttribute && a.AttributeType.FullName != AsyncAttribute)
                 .OrderBy(a => a.AttributeType.Name)
                 .ToString(scope, prefix + "\t", emitPointer: !SuppressMetadata, mustCompile: MustCompile));
+
+            // Add individual attribute info
+            foreach (var ca in method.CustomAttributes.Where(a => a.AttributeType.FullName != ExtAttribute && a.AttributeType.FullName != AsyncAttribute))
+                writer.Append(GenerateAttributeAttributeInfo(ca, prefix + "\t"));
 
             // IL2CPP doesn't seem to retain return type attributes
             //writer.Append(method.ReturnType.CustomAttributes.ToString(prefix + "\t", "return: ", emitPointer: !SuppressMetadata));

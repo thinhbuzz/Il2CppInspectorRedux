@@ -1,0 +1,14 @@
+#!/bin/bash
+set -e
+rm -rf ./osx-arm64
+dotnet restore ./Il2CppInspector.CLI/Il2CppInspector.CLI.csproj -r osx-arm64
+dotnet publish -c Release --no-self-contained --no-restore -o ./osx-arm64 -r osx-arm64 ./Il2CppInspector.CLI/Il2CppInspector.CLI.csproj
+cp il2cpp il2cpp-apkm ./osx-arm64/
+mkdir -p ./osx-arm64/bun-builder
+cp bun-builder/index.ts bun-builder/bun.lock bun-builder/package.json ./osx-arm64/bun-builder/
+chmod +x ./osx-arm64/il2cpp ./osx-arm64/il2cpp-apkm
+echo -e "\nAdd to path: $PWD/osx-arm64"
+# cd ~/Desktop/projects/pgtools/apks/0.367.2
+# rm -rf output
+# il2cpp
+# ls output/Code/holo-game/Niantic/Platform/NianticInventoryCache*

@@ -1,6 +1,11 @@
 name: Il2CppInspectorRedux Build
 
-on: [push, workflow_dispatch, workflow_call]
+# CI is only triggered by a tag push (the Release workflow calls this one via
+# workflow_call) or manually with workflow_dispatch. Regular branch pushes and
+# pull requests do not build.
+on:
+  workflow_dispatch:
+  workflow_call:
 
 jobs:
   build-redux-gui: # this already includes stuff only relevant for linux/macos for when the gui is released on those platforms
@@ -10,7 +15,7 @@ jobs:
         platform: ['windows-latest']
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           submodules: true
           sparse-checkout: |
@@ -22,17 +27,17 @@ jobs:
             Il2CppInspector.Redux.GUI.UI
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6.1.0
         with:
           package_json_file: Il2CppInspector.Redux.GUI.UI/package.json
 
       - name: Setup Node.JS
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: "pnpm"
@@ -59,7 +64,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
   
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-redux-gui-${{ hashFiles('**/packages.lock.json') }}
@@ -75,7 +80,7 @@ jobs:
         run: dotnet publish -c Release --no-self-contained --no-restore -o ./win-x64 -r win-x64 ./Il2CppInspector.Redux.GUI/Il2CppInspector.Redux.GUI.csproj
 
       - name: Upload GUI Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Il2CppInspectorRedux.GUI
           path: ./win-x64
@@ -88,7 +93,7 @@ jobs:
         rid: ['win-x64', 'linux-x64', 'linux-arm64', 'osx-x64', 'osx-arm64']
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           submodules: true
           sparse-checkout: |
@@ -97,14 +102,15 @@ jobs:
             Il2CppInspector.Common
             Il2CppInspector.Redux.FrontendCore
             Il2CppInspector.Redux.CLI
+            bun-builder
 
       - name: Setup .NET SDK ${{ matrix.dotnet-version }}
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ matrix.dotnet-version }}
   
       - name: Cache NuGet packages 
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-cli-${{ matrix.rid }}-${{ hashFiles('**/packages.lock.json') }}
@@ -117,17 +123,30 @@ jobs:
       - name: Build & Publish
         run: dotnet publish -c Release --no-self-contained --no-restore -o ./${{ matrix.rid }} -r ${{ matrix.rid }} ./Il2CppInspector.Redux.CLI/Il2CppInspector.Redux.CLI.csproj
 
+      - name: Copy CLI scripts (il2cpp*, build*)
+        run: |
+          cp il2cpp* build* ./${{ matrix.rid }}/
+      - name: Copy bun-builder directory
+        run: |
+          mkdir -p ./${{ matrix.rid }}/bun-builder
+          cp -R bun-builder/. ./${{ matrix.rid }}/bun-builder/
+      - name: Make Unix scripts executable
+        if: matrix.rid != 'win-x64'
+        run: |
+          chmod +x ./${{ matrix.rid }}/il2cpp ./${{ matrix.rid }}/il2cpp-apkm ./${{ matrix.rid }}/build
+
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
            name: Il2CppInspectorRedux.CLI-${{ matrix.rid }}
            path: ./${{ matrix.rid }}
+           include-hidden-files: true
 
   build-old-gui:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           submodules: true
           sparse-checkout: |
@@ -137,11 +156,11 @@ jobs:
             Il2CppInspector.GUI
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
   
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-gui-${{ hashFiles('**/packages.lock.json') }}
@@ -155,7 +174,7 @@ jobs:
         run: dotnet publish -c Release --no-self-contained --no-restore -o ./win-x64 -r win-x64 ./Il2CppInspector.GUI/Il2CppInspector.GUI.csproj
 
       - name: Upload GUI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Il2CppInspectorRedux.Legacy.GUI
           path: ./win-x64
@@ -168,7 +187,7 @@ jobs:
         rid: ['win-x64', 'linux-x64', 'linux-arm64', 'osx-x64', 'osx-arm64']
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           submodules: true
           sparse-checkout: |
@@ -176,13 +195,14 @@ jobs:
             VersionedSerialization.Generator
             Il2CppInspector.Common
             Il2CppInspector.CLI
+            bun-builder
 
       - name: Setup .NET SDK ${{ matrix.dotnet-version }}
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ matrix.dotnet-version }}
   
-      - uses: actions/cache@v5
+      - uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-cli-${{ matrix.rid }}-${{ hashFiles('**/packages.lock.json') }}
@@ -195,8 +215,21 @@ jobs:
       - name: Build & Publish
         run: dotnet publish -c Release --no-self-contained --no-restore -o ./${{ matrix.rid }} -r ${{ matrix.rid }} ./Il2CppInspector.CLI/Il2CppInspector.CLI.csproj
 
+      - name: Copy CLI scripts (il2cpp*, build*)
+        run: |
+          cp il2cpp* build* ./${{ matrix.rid }}/
+      - name: Copy bun-builder directory
+        run: |
+          mkdir -p ./${{ matrix.rid }}/bun-builder
+          cp -R bun-builder/. ./${{ matrix.rid }}/bun-builder/
+      - name: Make Unix scripts executable
+        if: matrix.rid != 'win-x64'
+        run: |
+          chmod +x ./${{ matrix.rid }}/il2cpp ./${{ matrix.rid }}/il2cpp-apkm ./${{ matrix.rid }}/build
+
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
            name: Il2CppInspectorRedux.Legacy.CLI-${{ matrix.rid }}
            path: ./${{ matrix.rid }}
+           include-hidden-files: true
