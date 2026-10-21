@@ -597,9 +597,155 @@ namespace Il2CppInspector.Outputs
             foreach (var ca in method.CustomAttributes)
                 AddCustomAttribute(module, mMethod, ca);
 
+            // Explicit interface implementations need a MethodImpl entry so that tools
+            // (dnSpy/ILSpy, reflection, the runtime) can associate them with the interface method
+            AddExplicitInterfaceOverride(module, mMethod, method);
+
             // Add method to type
             mType.Methods.Add(mMethod);
             return mMethod;
+        }
+
+        // Add a MethodImpl row for an explicit interface implementation
+        private void AddExplicitInterfaceOverride(ModuleDef module, MethodDef mMethod, MethodBase method)
+        {
+            // Explicit interface implementations are private final virtual methods introduced with newslot
+            if (!method.IsVirtual || !method.IsFinal
+                || (method.Attributes & System.Reflection.MethodAttributes.VtableLayoutMask) != System.Reflection.MethodAttributes.NewSlot
+                || method.Name.IndexOf('.') == -1)
+                return;
+
+            var interfaces = method.DeclaringType.ImplementedInterfaces;
+
+            // IL2CPP does not use a consistent naming scheme for explicit interface implementation names.
+            // They may be prefixed (eg. "pb::Namespace.IFoo.Method"), so match the interface name anywhere
+            // in the method name and prefer the longest (most specific) match.
+            var implementingInterface = interfaces
+                .SelectMany(i => GetInterfaceNamePrefixes(i).Select(p => (Interface: i, Prefix: p)))
+                .Where(x => method.Name.Contains(x.Prefix))
+                .OrderByDescending(x => x.Prefix.Length)
+                .Select(x => x.Interface)
+                .FirstOrDefault();
+
+            if (implementingInterface == null)
+                return;
+
+            var interfaceMethodName = method.Name.Substring(method.Name.LastIndexOf('.') + 1);
+
+            var interfaceMethods = implementingInterface.DeclaredMethods
+                .Where(m => m.Name == interfaceMethodName)
+                .ToList();
+
+            var interfaceMethod = interfaceMethods.FirstOrDefault(m => SignatureMatches(method, m));
+
+            // The method name is unique on the interface, so it has to be the implemented method even if
+            // the type model represents one of the signature types differently on each side
+            if (interfaceMethod == null && interfaceMethods.Count == 1)
+                interfaceMethod = interfaceMethods[0];
+
+            if (interfaceMethod == null)
+                return;
+
+            // The signature of a MemberRef whose parent is a generic TypeSpec must stay in the generic
+            // context of the interface definition (VAR/MVAR indices), not the substituted parameter types
+            var interfaceMethodDefinition = interfaceMethod.RootDefinition;
+            var interfaceMethodRef = new MemberRefUser(module, interfaceMethodDefinition.Name,
+                GetMethodSig(module, interfaceMethodDefinition), GetTypeRef(module, interfaceMethod.DeclaringType));
+
+            mMethod.Overrides.Add(new MethodOverride(mMethod, interfaceMethodRef));
+        }
+
+        private static IEnumerable<string> GetInterfaceNamePrefixes(TypeInfo type)
+        {
+            // Names as written by Il2Cpp (includes explicit interface implementations)
+            yield return GetMetadataTypeName(type) + ".";
+
+            // C# names as written by the source code
+            var ns = string.IsNullOrEmpty(type.Namespace) ? "" : type.Namespace + ".";
+            yield return ns + type.CSharpName + ".";
+            yield return ns + type.GetCSharpTypeDeclarationName().Replace(" ", "") + ".";
+        }
+
+        // Build a fully-qualified name in the same style as Il2Cpp's explicit interface implementation names:
+        // nested types include their declaring type and generic arguments are fully qualified
+        private static string GetMetadataTypeName(TypeInfo type)
+        {
+            if (type.IsGenericParameter)
+                return type.Name;
+
+            if (type.HasElementType)
+            {
+                var elementName = GetMetadataTypeName(type.ElementType);
+                if (type.IsByRef)
+                    elementName += "&";
+                if (type.IsArray)
+                    elementName += "[" + new string(',', type.GetArrayRank() - 1) + "]";
+                if (type.IsPointer)
+                    elementName += "*";
+                return elementName;
+            }
+
+            var name = type.CSharpBaseName;
+
+            // Nested types inherit the generic parameters of their declaring type, but those are part of
+            // the declaring type's name. They are always the first parameters in the generic argument list.
+            var genericArguments = type.GetGenericArguments();
+            if (genericArguments.Length > 0)
+            {
+                var inheritedGenericParameterCount = type.DeclaringType?.GetGenericArguments().Length ?? 0;
+                var ownGenericArguments = genericArguments.Skip(inheritedGenericParameterCount);
+                if (ownGenericArguments.Any())
+                    name += "<" + string.Join(",", ownGenericArguments.Select(GetMetadataTypeName)) + ">";
+            }
+
+            if (type.IsNested)
+                return GetMetadataTypeName(type.DeclaringType) + "." + name;
+
+            return (string.IsNullOrEmpty(type.Namespace) ? "" : type.Namespace + ".") + name;
+        }
+
+        private static bool SignatureMatches(MethodBase implementingMethod, MethodBase interfaceMethod)
+        {
+            if (implementingMethod.DeclaredParameters.Count != interfaceMethod.DeclaredParameters.Count
+                || implementingMethod.GetGenericArguments().Length != interfaceMethod.GetGenericArguments().Length)
+                return false;
+
+            for (var i = 0; i < implementingMethod.DeclaredParameters.Count; i++)
+                if (!TypesMatch(implementingMethod.DeclaredParameters[i].ParameterType,
+                        interfaceMethod.DeclaredParameters[i].ParameterType))
+                    return false;
+
+            return implementingMethod is not MethodInfo implementing
+                || interfaceMethod is not MethodInfo declaration
+                || TypesMatch(implementing.ReturnType, declaration.ReturnType);
+        }
+
+        private static bool TypesMatch(TypeInfo a, TypeInfo b)
+        {
+            if (ReferenceEquals(a, b))
+                return true;
+            if (a == null || b == null)
+                return false;
+
+            // Arrays, by-ref and pointer types have no FullName when their element type is a generic parameter
+            if (a.HasElementType || b.HasElementType)
+            {
+                if (a.HasElementType != b.HasElementType
+                    || a.IsByRef != b.IsByRef
+                    || a.IsArray != b.IsArray
+                    || a.IsPointer != b.IsPointer)
+                    return false;
+                if (a.IsArray && a.GetArrayRank() != b.GetArrayRank())
+                    return false;
+                return TypesMatch(a.ElementType, b.ElementType);
+            }
+
+            if (a.IsGenericParameter || b.IsGenericParameter)
+                return a.IsGenericParameter && b.IsGenericParameter
+                    && a.GenericParameterPosition == b.GenericParameterPosition
+                    && (a.DeclaringMethod == null) == (b.DeclaringMethod == null);
+
+            return a.FullName != null && a.FullName == b.FullName;
         }
 
         private MethodSig GetMethodSig(ModuleDef module, MethodBase method)

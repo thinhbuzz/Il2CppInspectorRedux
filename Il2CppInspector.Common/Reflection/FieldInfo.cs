@@ -162,15 +162,15 @@ namespace Il2CppInspector.Reflection {
         {
             var modifiers = GetModifierStringRaw();
 
-            if (modifiers.Count == 0)
-            {
-                return "";
-            }
-
             string access = GetAccessModifierString();
             if (!string.IsNullOrWhiteSpace(access))
             {
-                modifiers.Insert(0, access);
+                modifiers.Insert(0, access.Trim());
+            }
+
+            if (modifiers.Count == 0)
+            {
+                return "";
             }
 
             return string.Join(" ", modifiers) + " ";

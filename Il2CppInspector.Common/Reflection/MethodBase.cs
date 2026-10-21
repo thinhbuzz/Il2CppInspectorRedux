@@ -211,9 +211,10 @@ namespace Il2CppInspector.Reflection
 
         protected abstract MethodBase MakeGenericMethodImpl(TypeInfo[] typeArguments);
 
+        // Access modifier as it would be written in C# source code
         public string GetAccessModifierString()
         {
-            var accessModifier = GetAccessModifierStringRaw();
+            var accessModifier = GetSourceAccessModifierStringRaw();
             if (accessModifier == "")
             {
                 return accessModifier;
@@ -221,17 +222,11 @@ namespace Il2CppInspector.Reflection
             return accessModifier + " ";
         }
 
+        // Access modifier as recorded in the assembly metadata (e.g. what dnSpy reports for the method).
+        // This differs from the C# source syntax for static constructors, finalizers and explicit
+        // interface implementations.
         public string GetAccessModifierStringRaw() => this switch
         {
-            // Static constructors can not have an access level modifier
-            { IsConstructor: true, IsStatic: true } => "",
-
-            // Finalizers can not have an access level modifier
-            { Name: "Finalize", IsVirtual: true, IsFamily: true } => "",
-
-            // Explicit interface implementations do not have an access level modifier
-            { IsVirtual: true, IsFinal: true, Attributes: var a } when (a & MethodAttributes.VtableLayoutMask) == MethodAttributes.NewSlot && Name.IndexOf('.') != -1 => "",
-
             { IsPrivate: true } => "private",
             { IsPublic: true } => "public",
             { IsFamily: true } => "protected",
@@ -241,21 +236,38 @@ namespace Il2CppInspector.Reflection
             _ => ""
         };
 
-        
+        private string GetSourceAccessModifierStringRaw() => this switch
+        {
+            // Static constructors can not have an access level modifier
+            { IsConstructor: true, IsStatic: true } => "",
+
+            // Finalizers can not have an access level modifier
+            { Name: "Finalize", IsVirtual: true, IsFamily: true } => "",
+
+            // Explicit interface implementations do not have an access level modifier. Their metadata
+            // access level is private, which is what GetAccessModifierStringRaw() reports.
+            { IsVirtual: true, IsFinal: true, Attributes: var a } when (a & MethodAttributes.VtableLayoutMask) == MethodAttributes.NewSlot && Name.IndexOf('.') != -1 => "",
+
+            _ => GetAccessModifierStringRaw()
+        };
 
         public string GetModifierString()
         {
-            var modifiers = GetModifierStringRaw();
-
-            if (modifiers.Count == 0)
-            {
+            // Interface methods and properties have no visible modifiers (they are always declared 'public abstract')
+            if (DeclaringType.IsInterface)
                 return "";
-            }
+
+            var modifiers = GetModifierStringRaw();
 
             string access = GetAccessModifierString();
             if (!string.IsNullOrWhiteSpace(access))
             {
-                modifiers.Insert(0, access);
+                modifiers.Insert(0, access.Trim());
+            }
+
+            if (modifiers.Count == 0)
+            {
+                return "";
             }
 
             return string.Join(" ", modifiers) + " ";
